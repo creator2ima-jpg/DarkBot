@@ -22,7 +22,6 @@ function saveSettings() { fs.writeFileSync(settingsFile, JSON.stringify(groupSet
 // =========================================
 // 👑 رقم المالك (المدير العام)
 // =========================================
-// تم إضافة 20 (كود مصر) قبل الرقم ليتعرف عليه الواتساب
 const MY_ADMIN_ID = "201092996413@c.us"; 
 
 const client = new Client({ 
@@ -58,17 +57,14 @@ function cleanText(text) {
 }
 const cleanedBadWords = badWords.map(word => cleanText(word));
 
-// ⏱️ سجلات نظام التجار
 const pendingMerchants = {}; 
 
 // =========================================
-// 👋 نظام التجار والأعضاء الجدد (يعمل فقط إذا كان مفعلاً)
+// 👋 نظام التجار والأعضاء الجدد
 // =========================================
 client.on('group_join', async (notification) => {
     try {
         const chatId = notification.chatId;
-        
-        // هل ميزة "التجار" مفعلة في هذا الجروب؟ إذا لا، توقف.
         if (!groupSettings[chatId] || !groupSettings[chatId].merchant) return;
 
         const joinedUserId = notification.recipientIds[0];
@@ -108,80 +104,90 @@ client.on('group_join', async (notification) => {
 // =========================================
 // 🛡️ المراقبة المركزية والتحكم
 // =========================================
-client.on('message', async msg => {
+client.on('message_create', async msg => {
     const chat = await msg.getChat();
-    const senderId = msg.author || msg.from; 
+    
+    // 🟢 استخراج رقم المرسل الخام
+    let rawSenderId;
+    if (msg.fromMe) {
+        rawSenderId = client.info.wid._serialized; 
+    } else {
+        rawSenderId = msg.author || msg.from;
+    }
+
+    // 🔥 السطر السحري: قص أي زيادات يضعها واتساب بسبب الأجهزة المتعددة (مثل :5)
+    const senderId = rawSenderId.replace(/:\d+/, "");
+    
     const senderNumber = senderId.split('@')[0];
     const chatId = chat.id._serialized;
     const text = msg.body.trim();
 
     if (chat.isGroup) {
         
+        // 🟢 [رادار كشف الأخطاء] سيعمل في شاشة Railway السوداء
+        if (text.startsWith('!تفعيل') || text.startsWith('!ايقاف')) {
+            console.log(`\n🚨[محاولة تشغيل أمر من المالك]`);
+            console.log(`الرقم الذي أرسل الأمر: ${senderId}`);
+            console.log(`هل تم التعرف عليه كمدير؟ ${senderId === MY_ADMIN_ID}\n`);
+        }
+
         // =========================================
         // 🛠️ لوحة تحكم المالك (01092996413)
         // =========================================
         if (senderId === MY_ADMIN_ID) {
-            // تهيئة إعدادات الجروب إذا لم تكن موجودة
             if (!groupSettings[chatId]) {
                 groupSettings[chatId] = { links: false, swear: false, merchant: false, stickers: false };
             }
 
             if (text === '!تفعيل الروابط') {
                 groupSettings[chatId].links = true; saveSettings();
-                await msg.reply('✅ تم تفعيل ميزة (حماية الروابط) بنجاح لهذا الجروب.'); return;
+                await msg.reply(`${botPrefix}✅ تم تفعيل ميزة (حماية الروابط) بنجاح لهذا الجروب.`); return;
             }
             if (text === '!تفعيل الشتائم') {
                 groupSettings[chatId].swear = true; saveSettings();
-                await msg.reply('✅ تم تفعيل ميزة (مكافحة الشتائم) بنجاح لهذا الجروب.'); return;
+                await msg.reply(`${botPrefix}✅ تم تفعيل ميزة (مكافحة الشتائم) بنجاح لهذا الجروب.`); return;
             }
             if (text === '!تفعيل التجار') {
                 groupSettings[chatId].merchant = true; saveSettings();
-                await msg.reply('✅ تم تفعيل ميزة (نظام توثيق التجار) بنجاح لهذا الجروب.'); return;
+                await msg.reply(`${botPrefix}✅ تم تفعيل ميزة (نظام توثيق التجار) بنجاح لهذا الجروب.`); return;
             }
             if (text === '!تفعيل الملصقات') {
                 groupSettings[chatId].stickers = true; saveSettings();
-                await msg.reply('✅ تم تفعيل ميزة (صانع الملصقات) بنجاح لهذا الجروب.'); return;
+                await msg.reply(`${botPrefix}✅ تم تفعيل ميزة (صانع الملصقات) بنجاح لهذا الجروب.`); return;
             }
             if (text === '!تفعيل الكل') {
                 groupSettings[chatId] = { links: true, swear: true, merchant: true, stickers: true }; saveSettings();
-                await msg.reply('✅🔥 تم تفعيل **جميع ميزات البوت** بنجاح لهذا الجروب.'); return;
+                await msg.reply(`${botPrefix}✅🔥 تم تفعيل **جميع ميزات البوت** بنجاح لهذا الجروب.`); return;
             }
             if (text === '!ايقاف الكل') {
                 groupSettings[chatId] = { links: false, swear: false, merchant: false, stickers: false }; saveSettings();
-                await msg.reply('🛑 تم إيقاف جميع الميزات. البوت الآن في وضع السكون في هذا الجروب.'); return;
+                await msg.reply(`${botPrefix}🛑 تم إيقاف جميع الميزات. البوت الآن في وضع السكون في هذا الجروب.`); return;
             }
         }
 
-        // =========================================
-        // 🔒 التحقق من التراخيص قبل تنفيذ أي شيء
-        // =========================================
         const settings = groupSettings[chatId] || { links: false, swear: false, merchant: false, stickers: false };
 
-        // 1. الأوامر العامة
         if (text === '!قوانين') {
-            await chat.sendMessage(`${botPrefix}${rulesText}`); return;
+            await msg.reply(`${botPrefix}${rulesText}`); return;
         }
         if (text === '!انذاراتي') {
             const count = userWarnings[senderId] || 0;
-            await chat.sendMessage(`${botPrefix}👤 أهلاً بك (@${senderNumber})\n⚠️ عدد إنذاراتك الحالية هو: ${count} من أصل 3.`, { mentions: [senderId] }); return;
+            await msg.reply(`${botPrefix}👤 أهلاً بك (@${senderNumber})\n⚠️ عدد إنذاراتك الحالية هو: ${count} من أصل 3.`, { mentions: [senderId] }); return;
         }
 
-        // 2. صانع الملصقات (يتحقق من التفعيل)
         if (text === '!ملصق') {
             if (!settings.stickers) return; 
-            
             if (msg.hasMedia) {
                 try {
                     const media = await msg.downloadMedia();
                     if (media && media.mimetype.includes('image')) {
-                        await chat.sendMessage(media, { sendMediaAsSticker: true, stickerName: 'دارك فاير', stickerAuthor: 'Dark Fire Bot' });
+                        await msg.reply(media, chatId, { sendMediaAsSticker: true, stickerName: 'دارك فاير', stickerAuthor: 'Dark Fire Bot' });
                     }
                 } catch (error) {}
             }
             return;
         }
 
-        // 3. فحص توثيق التاجر (يتحقق من التفعيل)
         if (settings.merchant) {
             const userKey = `${chatId}_${senderId}`;
             if (pendingMerchants[userKey]) {
@@ -195,7 +201,6 @@ client.on('message', async msg => {
             }
         }
 
-        // --- فحص هل المرسل أدمن الجروب؟ ---
         let isSenderAdmin = false;
         for (let participant of chat.participants) {
             if (participant.id._serialized === senderId) {
@@ -205,7 +210,6 @@ client.on('message', async msg => {
         }
         if (isSenderAdmin && senderId !== MY_ADMIN_ID) return; 
 
-        // 4. مكافحة الشتائم (يتحقق من التفعيل)
         if (settings.swear) {
             const normalizedMessage = cleanText(msg.body); 
             const messageWords = normalizedMessage.split(/\s+/); 
@@ -218,7 +222,6 @@ client.on('message', async msg => {
             }
         }
 
-        // 5. منع الروابط والطرد (يتحقق من التفعيل)
         if (settings.links) {
             const urlRegex = /(https?:\/\/[^\s]+)/g;
             if (urlRegex.test(msg.body)) {
