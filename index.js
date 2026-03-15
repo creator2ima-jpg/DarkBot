@@ -3,33 +3,41 @@ const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 
 // =========================================
-// 🗄️ قواعد البيانات (الإنذارات + التراخيص)
+// 🗄️ قواعد البيانات
 // =========================================
 const dbFile = './warnings.json';
 let userWarnings = {};
-if (fs.existsSync(dbFile)) {
-    userWarnings = JSON.parse(fs.readFileSync(dbFile, 'utf8'));
-}
+if (fs.existsSync(dbFile)) { userWarnings = JSON.parse(fs.readFileSync(dbFile, 'utf8')); }
 function saveWarnings() { fs.writeFileSync(dbFile, JSON.stringify(userWarnings, null, 2)); }
 
 const settingsFile = './settings.json';
 let groupSettings = {};
-if (fs.existsSync(settingsFile)) {
-    groupSettings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
-}
+if (fs.existsSync(settingsFile)) { groupSettings = JSON.parse(fs.readFileSync(settingsFile, 'utf8')); }
 function saveSettings() { fs.writeFileSync(settingsFile, JSON.stringify(groupSettings, null, 2)); }
 
 // =========================================
-// 👑 أرقام المالك (الرقم العادي + الرقم السري)
+// 👑 أرقام المالك
 // =========================================
 const MY_ADMIN_IDS =[
     "201092996413@c.us", 
     "27041768431630@lid" 
 ]; 
 
+// 🔥 التعديل الجديد هنا: إضافة أوامر لتخفيف استهلاك السيرفر (منع الانهيار)
 const client = new Client({ 
     authStrategy: new LocalAuth(),
-    puppeteer: { args:['--no-sandbox', '--disable-setuid-sandbox'] }
+    puppeteer: { 
+        args:[
+            '--no-sandbox', 
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage', // يمنع امتلاء الذاكرة المؤقتة للسيرفر
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process', // يجعله يعمل في مسار واحد خفيف
+            '--disable-gpu'
+        ] 
+    }
 });
 
 client.on('qr', qr => {
@@ -38,12 +46,17 @@ client.on('qr', qr => {
 });
 
 client.on('ready', () => {
-    console.log('✅ مبروك! بوت (دارك فاير) جاهز ويعمل الآن بنسخته التجارية المتقدمة.');
+    console.log('✅ مبروك! بوت (دارك فاير) جاهز ويعمل الآن بنسخته التجارية المتقدمة (نسخة خفيفة).');
+});
+
+// 🔥 إضافة ميزة إعادة التشغيل التلقائي إذا طرده واتساب لأي سبب
+client.on('disconnected', (reason) => {
+    console.log('تم فصل البوت، جاري إعادة التشغيل...', reason);
+    client.initialize();
 });
 
 const botPrefix = "بوت دارك فاير | Dark Fire Bot \n\n";
 
-// 📜 القوانين والشتائم
 const rulesText = `لائحة القوانين:
 1. ممنوع إرسال لينكات 🟥
 2. شتائم = كيك (طرد) 🟥
@@ -118,7 +131,6 @@ client.on('message_create', async msg => {
 
     if (chat.isGroup) {
         
-        // 🟢 رادار قوي جداً (سيظهر في شاشة Railway السوداء)
         if (text.includes('تفعيل') || text.includes('ايقاف')) {
             console.log(`\n🚨 --- [تم التقاط أمر] --- 🚨`);
             console.log(`النص المكتوب: "${text}"`);
@@ -132,7 +144,6 @@ client.on('message_create', async msg => {
                 groupSettings[chatId] = { links: false, swear: false, merchant: false, stickers: false };
             }
 
-            // تم تغيير msg.reply إلى chat.sendMessage لكي لا تحدث مشكلة إذا أرسلت من رقم البوت
             if (text === '!تفعيل الروابط') {
                 groupSettings[chatId].links = true; saveSettings();
                 await chat.sendMessage(`${botPrefix}✅ تم تفعيل ميزة (حماية الروابط) بنجاح لهذا الجروب.`); return;
