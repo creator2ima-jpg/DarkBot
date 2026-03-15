@@ -20,9 +20,12 @@ if (fs.existsSync(settingsFile)) {
 function saveSettings() { fs.writeFileSync(settingsFile, JSON.stringify(groupSettings, null, 2)); }
 
 // =========================================
-// 👑 رقم المالك (المدير العام)
+// 👑 أرقام المالك (الرقم العادي + الرقم السري الذي كشفناه)
 // =========================================
-const MY_ADMIN_ID = "201092996413@c.us"; 
+const MY_ADMIN_IDS =[
+    "201092996413@c.us", 
+    "27041768431630@lid" // هذا هو رقمك الداخلي الذي يستخدمه واتساب حالياً
+]; 
 
 const client = new Client({ 
     authStrategy: new LocalAuth(),
@@ -115,7 +118,7 @@ client.on('message_create', async msg => {
         rawSenderId = msg.author || msg.from;
     }
 
-    // 🔥 السطر السحري: قص أي زيادات يضعها واتساب بسبب الأجهزة المتعددة (مثل :5)
+    // قص الزيادات
     const senderId = rawSenderId.replace(/:\d+/, "");
     
     const senderNumber = senderId.split('@')[0];
@@ -124,17 +127,11 @@ client.on('message_create', async msg => {
 
     if (chat.isGroup) {
         
-        // 🟢 [رادار كشف الأخطاء] سيعمل في شاشة Railway السوداء
-        if (text.startsWith('!تفعيل') || text.startsWith('!ايقاف')) {
-            console.log(`\n🚨[محاولة تشغيل أمر من المالك]`);
-            console.log(`الرقم الذي أرسل الأمر: ${senderId}`);
-            console.log(`هل تم التعرف عليه كمدير؟ ${senderId === MY_ADMIN_ID}\n`);
-        }
-
         // =========================================
-        // 🛠️ لوحة تحكم المالك (01092996413)
+        // 🛠️ لوحة تحكم المالك 
         // =========================================
-        if (senderId === MY_ADMIN_ID) {
+        // الآن يتحقق مما إذا كان رقمك موجوداً في قائمة أرقام المالك
+        if (MY_ADMIN_IDS.includes(senderId)) {
             if (!groupSettings[chatId]) {
                 groupSettings[chatId] = { links: false, swear: false, merchant: false, stickers: false };
             }
@@ -208,7 +205,8 @@ client.on('message_create', async msg => {
                 break;
             }
         }
-        if (isSenderAdmin && senderId !== MY_ADMIN_ID) return; 
+        // لا تعاقب المشرفين، ولا تعاقب المالك
+        if (isSenderAdmin && !MY_ADMIN_IDS.includes(senderId)) return; 
 
         if (settings.swear) {
             const normalizedMessage = cleanText(msg.body); 
