@@ -6,7 +6,6 @@ const path = require('path');
 // =========================================
 // 🗄️ نظام الذاكرة الفولاذية (ضمان عدم نسيان التفعيلات)
 // =========================================
-// تحديد المسار الصحيح سواء على Railway أو على جهازك
 const dataPath = fs.existsSync('/data') ? '/data' : __dirname;
 const dbFile = path.join(dataPath, 'warnings.json');
 const settingsFile = path.join(dataPath, 'settings.json');
@@ -34,11 +33,11 @@ function saveSettings() {
 }
 
 // =========================================
-// 👑 أرقام المالك
+// 👑 أرقام المالك (تم التحديث ليكون أرقاماً فقط بدون رموز)
 // =========================================
-const MY_ADMIN_IDS =[
-    "201092996413@c.us", 
-    "27041768431630@c.us" // تم تعديل @lid إلى @c.us لضمان تعرف الواتساب عليها
+const MY_ADMIN_NUMBERS = [
+    "201092996413", 
+    "27041768431630"
 ]; 
 
 // =========================================
@@ -47,7 +46,6 @@ const MY_ADMIN_IDS =[
 const client = new Client({ 
     authStrategy: new LocalAuth({ dataPath: dataPath }), 
     
-    // 🌟 الحل الجذري لمنع انهيار الرامات عند استلام الرسائل أو فتح الجروبات
     webVersionCache: {
         type: 'remote',
         remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
@@ -58,15 +56,15 @@ const client = new Client({
         args:[
             '--no-sandbox', 
             '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage', // يمنع امتلاء الذاكرة المشتركة
+            '--disable-dev-shm-usage', 
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--single-process', // يقلل استهلاك المعالج
+            '--single-process', 
             '--disable-gpu',
-            '--memory-pressure-off', // إجبار المتصفح على تقليل الضغط على الرامات
-            '--js-flags="--max-old-space-size=250"', // تقييد استهلاك الذاكرة بـ 250 ميجا فقط
-            '--disk-cache-size=0', // منع حفظ الكاش الذي يملأ الرامات
+            '--memory-pressure-off', 
+            '--js-flags="--max-old-space-size=250"', 
+            '--disk-cache-size=0', 
             '--disable-application-cache',
             '--disable-offline-load-stale-cache'
         ] 
@@ -82,25 +80,20 @@ client.on('ready', () => {
     console.log('✅ مبروك! البوت جاهز ويعمل بالنسخة الماسية (ذاكرة دائمة + مضاد للانهيار).');
 });
 
-// =========================================
-// 🛡️ أنظمة الإنعاش التلقائي (Auto-Recovery)
-// =========================================
 client.on('disconnected', async (reason) => {
-    console.log('⚠️ تم فصل الواتساب (ربما بسبب الإنترنت أو الهاتف). السبب:', reason);
-    console.log('🔄 جاري عمل إنعاش وإعادة تشغيل للبوت تلقائياً...');
+    console.log('⚠️ تم فصل الواتساب. السبب:', reason);
+    console.log('🔄 جاري عمل إنعاش...');
     try {
         await client.destroy();
         client.initialize();
-    } catch (err) {
-        console.error('فشل الإنعاش:', err);
-    }
+    } catch (err) {}
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.log('🚨 تم التقاط خطأ صامت (سيتم تجاهله لكي لا يتوقف البوت):', reason);
+    console.log('🚨 تم التقاط خطأ صامت:', reason);
 });
 process.on('uncaughtException', (error) => {
-    console.log('🚨 خطأ مفاجئ في النظام (تم منعه من إيقاف البوت):', error.message);
+    console.log('🚨 خطأ مفاجئ:', error.message);
 });
 
 // =========================================
@@ -169,24 +162,20 @@ client.on('message_create', async msg => {
     try {
         const chat = await msg.getChat();
         
-        let rawSenderId;
-        if (msg.fromMe) {
-            rawSenderId = client.info.wid._serialized; 
-        } else {
-            rawSenderId = msg.author || msg.from;
-        }
-
+        let rawSenderId = msg.fromMe ? client.info.wid._serialized : (msg.author || msg.from);
         const senderId = rawSenderId.replace(/:\d+/, "");
-        const senderNumber = senderId.split('@')[0];
+        const senderNumber = senderId.split('@')[0]; // استخراج الرقم الصافي فقط
         const chatId = chat.id._serialized;
         const text = msg.body.trim();
 
         if (chat.isGroup) {
             
-            // 🛠️ لوحة تحكم المالك
-            if (MY_ADMIN_IDS.includes(senderId)) {
+            // 🔥 نظام الحماية الذكي الجديد للمالك 🔥
+            // البوت سيعتبرك مالكاً إذا كانت الرسالة مرسلة من نفس رقم البوت، أو إذا كان رقمك في قائمة الأرقام
+            const isBotOwner = msg.fromMe || MY_ADMIN_NUMBERS.includes(senderNumber);
+
+            if (isBotOwner) {
                 
-                // أمر فحص الذاكرة
                 if (text === '!فحص') {
                     const isSaved = groupSettings[chatId] ? "نعم ✅" : "لا ❌";
                     await chat.sendMessage(`${botPrefix}📊 تقرير النظام:\nالجروب مسجل في الذاكرة: ${isSaved}\nعدد الجروبات المفعلة كلياً: ${Object.keys(groupSettings).length}`);
@@ -266,7 +255,9 @@ client.on('message_create', async msg => {
                     break;
                 }
             }
-            if (isSenderAdmin && !MY_ADMIN_IDS.includes(senderId)) return; 
+            // استثناء المشرفين وأصحاب البوت من العقوبات
+            const isImmune = isSenderAdmin || msg.fromMe || MY_ADMIN_NUMBERS.includes(senderNumber);
+            if (isImmune) return; 
 
             if (settings.swear) {
                 const normalizedMessage = cleanText(msg.body); 
@@ -312,7 +303,7 @@ client.on('message_create', async msg => {
             }
         }
     } catch (err) {
-        console.error('حدث خطأ أثناء معالجة رسالة (تم تجاوزه لمنع انهيار البوت):', err.message);
+        console.error('حدث خطأ صامت:', err.message);
     }
 });
 
