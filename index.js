@@ -1,19 +1,37 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
+const path = require('path');
 
 // =========================================
-// 🗄️ قواعد البيانات
+// 🗄️ نظام الذاكرة الفولاذية (ضمان عدم نسيان التفعيلات)
 // =========================================
-const dbFile = './warnings.json';
+// تحديد المسار الصحيح سواء على Railway أو على جهازك
+const dataPath = fs.existsSync('/data') ? '/data' : __dirname;
+const dbFile = path.join(dataPath, 'warnings.json');
+const settingsFile = path.join(dataPath, 'settings.json');
+
 let userWarnings = {};
-if (fs.existsSync(dbFile)) { userWarnings = JSON.parse(fs.readFileSync(dbFile, 'utf8')); }
-function saveWarnings() { fs.writeFileSync(dbFile, JSON.stringify(userWarnings, null, 2)); }
+if (fs.existsSync(dbFile)) { 
+    userWarnings = JSON.parse(fs.readFileSync(dbFile, 'utf8')); 
+} else {
+    fs.writeFileSync(dbFile, JSON.stringify({}));
+}
 
-const settingsFile = './settings.json';
+function saveWarnings() { 
+    fs.writeFileSync(dbFile, JSON.stringify(userWarnings, null, 2)); 
+}
+
 let groupSettings = {};
-if (fs.existsSync(settingsFile)) { groupSettings = JSON.parse(fs.readFileSync(settingsFile, 'utf8')); }
-function saveSettings() { fs.writeFileSync(settingsFile, JSON.stringify(groupSettings, null, 2)); }
+if (fs.existsSync(settingsFile)) { 
+    groupSettings = JSON.parse(fs.readFileSync(settingsFile, 'utf8')); 
+} else {
+    fs.writeFileSync(settingsFile, JSON.stringify({}));
+}
+
+function saveSettings() { 
+    fs.writeFileSync(settingsFile, JSON.stringify(groupSettings, null, 2)); 
+}
 
 // =========================================
 // 👑 أرقام المالك
@@ -23,38 +41,61 @@ const MY_ADMIN_IDS =[
     "27041768431630@lid" 
 ]; 
 
-// 🔥 التعديل الجديد هنا: إضافة أوامر لتخفيف استهلاك السيرفر (منع الانهيار)
+// =========================================
+// 🚀 إعدادات منع التجمد (Anti-Crash & RAM Optimization)
+// =========================================
 const client = new Client({ 
-    authStrategy: new LocalAuth(),
+    authStrategy: new LocalAuth({ dataPath: dataPath }), 
     puppeteer: { 
         args:[
             '--no-sandbox', 
             '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage', // يمنع امتلاء الذاكرة المؤقتة للسيرفر
+            '--disable-dev-shm-usage', 
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--single-process', // يجعله يعمل في مسار واحد خفيف
-            '--disable-gpu'
+            '--single-process', 
+            '--disable-gpu',
+            '--disk-cache-size=0', // منع حفظ الكاش الذي يملأ الرامات
+            '--disable-application-cache',
+            '--disable-offline-load-stale-cache'
         ] 
     }
 });
 
 client.on('qr', qr => {
     qrcode.generate(qr, {small: true});
-    console.log('امسك هاتفك وافتح واتساب، ثم امسح كود الـ QR هذا (للمرة الأولى والأخيرة)');
+    console.log('امسك هاتفك وافتح واتساب، ثم امسح كود الـ QR هذا');
 });
 
 client.on('ready', () => {
-    console.log('✅ مبروك! بوت (دارك فاير) جاهز ويعمل الآن بنسخته التجارية المتقدمة (نسخة خفيفة).');
+    console.log('✅ مبروك! البوت جاهز ويعمل بالنسخة الماسية (ذاكرة دائمة + مضاد للتجمد).');
 });
 
-// 🔥 إضافة ميزة إعادة التشغيل التلقائي إذا طرده واتساب لأي سبب
-client.on('disconnected', (reason) => {
-    console.log('تم فصل البوت، جاري إعادة التشغيل...', reason);
-    client.initialize();
+// =========================================
+// 🛡️ أنظمة الإنعاش التلقائي (Auto-Recovery)
+// =========================================
+client.on('disconnected', async (reason) => {
+    console.log('⚠️ تم فصل الواتساب (ربما بسبب الإنترنت أو الهاتف). السبب:', reason);
+    console.log('🔄 جاري عمل إنعاش وإعادة تشغيل للبوت تلقائياً...');
+    try {
+        await client.destroy();
+        client.initialize();
+    } catch (err) {
+        console.error('فشل الإنعاش:', err);
+    }
 });
 
+process.on('unhandledRejection', (reason, promise) => {
+    console.log('🚨 تم التقاط خطأ صامت (سيتم تجاهله لكي لا يتوقف البوت):', reason);
+});
+process.on('uncaughtException', (error) => {
+    console.log('🚨 خطأ مفاجئ في النظام (تم منعه من إيقاف البوت):', error.message);
+});
+
+// =========================================
+// ⚙️ الأوامر والقوانين
+// =========================================
 const botPrefix = "بوت دارك فاير | Dark Fire Bot \n\n";
 
 const rulesText = `لائحة القوانين:
@@ -104,7 +145,7 @@ client.on('group_join', async (notification) => {
             if (pendingMerchants[userKey]) {
                 try {
                     await chat.removeParticipants([joinedUserId]);
-                    await chat.sendMessage(`${botPrefix}🚫 تم طرد (@${userNumber}) لعدم توثيق نفسه كتاجر خلال 10 دقائق.`, { mentions: [joinedUserId] });
+                    await chat.sendMessage(`${botPrefix}🚫 تم طرد (@${userNumber}) لعدم توثيق نفسه كتاجر خلال 10 دقائق.`, { mentions:[joinedUserId] });
                 } catch (err) {}
                 delete pendingMerchants[userKey];
             }
@@ -131,42 +172,43 @@ client.on('message_create', async msg => {
 
     if (chat.isGroup) {
         
-        if (text.includes('تفعيل') || text.includes('ايقاف')) {
-            console.log(`\n🚨 --- [تم التقاط أمر] --- 🚨`);
-            console.log(`النص المكتوب: "${text}"`);
-            console.log(`الرقم الذي أرسل الأمر: ${senderId}`);
-            console.log(`هل تم التعرف عليه كمدير؟ ${MY_ADMIN_IDS.includes(senderId)}`);
-            console.log(`------------------------------\n`);
-        }
-
+        // 🛠️ لوحة تحكم المالك
         if (MY_ADMIN_IDS.includes(senderId)) {
+            
+            // أمر جديد لك للتأكد من أن الذاكرة تعمل
+            if (text === '!فحص') {
+                const isSaved = groupSettings[chatId] ? "نعم ✅" : "لا ❌";
+                await chat.sendMessage(`${botPrefix}📊 تقرير النظام:\nالجروب مسجل في الذاكرة: ${isSaved}\nعدد الجروبات المفعلة كلياً: ${Object.keys(groupSettings).length}`);
+                return;
+            }
+
             if (!groupSettings[chatId]) {
                 groupSettings[chatId] = { links: false, swear: false, merchant: false, stickers: false };
             }
 
             if (text === '!تفعيل الروابط') {
                 groupSettings[chatId].links = true; saveSettings();
-                await chat.sendMessage(`${botPrefix}✅ تم تفعيل ميزة (حماية الروابط) بنجاح لهذا الجروب.`); return;
+                await chat.sendMessage(`${botPrefix}✅ تم تفعيل (حماية الروابط) وحفظها في الذاكرة الدائمة.`); return;
             }
             if (text === '!تفعيل الشتائم') {
                 groupSettings[chatId].swear = true; saveSettings();
-                await chat.sendMessage(`${botPrefix}✅ تم تفعيل ميزة (مكافحة الشتائم) بنجاح لهذا الجروب.`); return;
+                await chat.sendMessage(`${botPrefix}✅ تم تفعيل (مكافحة الشتائم) وحفظها في الذاكرة الدائمة.`); return;
             }
             if (text === '!تفعيل التجار') {
                 groupSettings[chatId].merchant = true; saveSettings();
-                await chat.sendMessage(`${botPrefix}✅ تم تفعيل ميزة (نظام توثيق التجار) بنجاح لهذا الجروب.`); return;
+                await chat.sendMessage(`${botPrefix}✅ تم تفعيل (نظام التجار) وحفظه في الذاكرة الدائمة.`); return;
             }
             if (text === '!تفعيل الملصقات') {
                 groupSettings[chatId].stickers = true; saveSettings();
-                await chat.sendMessage(`${botPrefix}✅ تم تفعيل ميزة (صانع الملصقات) بنجاح لهذا الجروب.`); return;
+                await chat.sendMessage(`${botPrefix}✅ تم تفعيل (الملصقات) وحفظها في الذاكرة الدائمة.`); return;
             }
             if (text === '!تفعيل الكل') {
                 groupSettings[chatId] = { links: true, swear: true, merchant: true, stickers: true }; saveSettings();
-                await chat.sendMessage(`${botPrefix}✅🔥 تم تفعيل **جميع ميزات البوت** بنجاح لهذا الجروب.`); return;
+                await chat.sendMessage(`${botPrefix}✅🔥 تم تفعيل **جميع الميزات** وحفظها للأبد في هذا الجروب.`); return;
             }
             if (text === '!ايقاف الكل') {
                 groupSettings[chatId] = { links: false, swear: false, merchant: false, stickers: false }; saveSettings();
-                await chat.sendMessage(`${botPrefix}🛑 تم إيقاف جميع الميزات. البوت الآن في وضع السكون في هذا الجروب.`); return;
+                await chat.sendMessage(`${botPrefix}🛑 تم إيقاف جميع الميزات ومسحها من نشاط الجروب.`); return;
             }
         }
 
