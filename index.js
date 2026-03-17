@@ -42,10 +42,11 @@ function saveMerchants() {
 }
 
 // =========================================
-// 👑 2. أرقام المالك
+// 👑 2. أرقام المالك (المديرين)
 // =========================================
 const MY_ADMIN_NUMBERS =[
     "201092996413",
+    "201091885491",
     "27041768431630"
 ];
 
@@ -75,11 +76,10 @@ function isSpamming(senderId) {
 }
 
 // =========================================
-// 🚀 4. إعدادات البوت (تم إصلاح العطل التقني هنا)
+// 🚀 4. إعدادات البوت 
 // =========================================
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: dataPath }),
-    // تم إزالة webVersionCache لأنه يسبب عمى للبوت مع التحديثات الجديدة
     puppeteer: {
         headless: true,
         args:[
@@ -132,7 +132,64 @@ const cleanedBadWords = badWords.map(word => cleanText(word));
 // 🛡️ 6. نظام توثيق التجار (الترحيب)
 // =========================================
 async function restoreMerchantTimers() {
-    // ... (تم الحفاظ على الكود الخاص بك هنا كما هو)
+    const now = Date.now();
+    for (const userKey in pendingMerchantsData) {
+        const expireTime = pendingMerchantsData[userKey];
+        const remaining = expireTime - now;
+        const parts = userKey.split('_SPLIT_');
+        const chatId = parts[0];
+        const userId = parts[1];
+
+        if (remaining <= 0) {
+            try {
+                const chat = await client.getChatById(chatId);
+                await chat.removeParticipants([userId]);
+                const userNumber = userId.split('@')[0];
+                await chat.sendMessage(
+                    `${botPrefix}🚫 تم طرد (@${userNumber}) لعدم توثيق نفسه.`,
+                    { mentions: [userId] }
+                );
+            } catch (err) {}
+            delete pendingMerchantsData[userKey];
+        } else {
+            const kickTimer = setTimeout(async () => {
+                if (pendingMerchants[userKey]) {
+                    try {
+                        const chat = await client.getChatById(chatId);
+                        const userNumber = userId.split('@')[0];
+                        await chat.removeParticipants([userId]);
+                        await chat.sendMessage(
+                            `${botPrefix}🚫 تم طرد (@${userNumber}) لعدم توثيق نفسه.`,
+                            { mentions: [userId] }
+                        );
+                    } catch (err) {}
+                    delete pendingMerchants[userKey];
+                    delete pendingMerchantsData[userKey];
+                    saveMerchants();
+                }
+            }, remaining);
+
+            let warningTimer = null;
+            const warningDelay = remaining - (60 * 1000);
+            if (warningDelay > 0) {
+                warningTimer = setTimeout(async () => {
+                    if (pendingMerchants[userKey]) {
+                        try {
+                            const chat = await client.getChatById(chatId);
+                            const userNumber = userId.split('@')[0];
+                            await chat.sendMessage(
+                                `${botPrefix}⚠️ تنبيه أخير (@${userNumber})!\nمتبقي دقيقة لعمل منشن لـ 5 تجار أو سيتم طردك!`,
+                                { mentions: [userId] }
+                            );
+                        } catch (err) {}
+                    }
+                }, warningDelay);
+            }
+
+            pendingMerchants[userKey] = { warningTimer, kickTimer, expireTime };
+        }
+    }
+    saveMerchants();
 }
 
 client.on('group_join', async (notification) => {
@@ -148,31 +205,40 @@ client.on('group_join', async (notification) => {
             const chat = await client.getChatById(chatId);
             const welcomeMsg =
                 `${botPrefix}أهلاً بك (@${userNumber}) في جروب التجار! 👋\n\n` +
-                `أمامك (10 دقائق) لإثبات أنك تاجر.\n` +
+                `أمامك (10 دقائق) لإثبات أنك تاجر ولست زبوناً.\n` +
                 `قم بإرسال رسالة تعمل فيها (منشن @) لـ 5 تجار كضمان لك.\n` +
                 `⏳ إذا لم تفعل ذلك، سيُطردك البوت تلقائياً.\n\n${rulesText}`;
-            await chat.sendMessage(welcomeMsg, { mentions:[joinedUserId] });
+            await chat.sendMessage(welcomeMsg, { mentions: [joinedUserId] });
 
             const userKey = `${chatId}_SPLIT_${joinedUserId}`;
             const expireTime = Date.now() + (10 * 60 * 1000);
 
             const warningTimer = setTimeout(async () => {
                 if (pendingMerchants[userKey])
-                    await chat.sendMessage(`${botPrefix}⚠️ تنبيه أخير (@${userNumber})! متبقي دقيقة للطرد.`, { mentions: [joinedUserId] });
+                    await chat.sendMessage(
+                        `${botPrefix}⚠️ تنبيه أخير (@${userNumber})!\nمتبقي دقيقة لعمل منشن لـ 5 تجار أو سيتم طردك!`,
+                        { mentions: [joinedUserId] }
+                    );
             }, 9 * 60 * 1000);
 
             const kickTimer = setTimeout(async () => {
                 if (pendingMerchants[userKey]) {
                     try {
                         await chat.removeParticipants([joinedUserId]);
-                        await chat.sendMessage(`${botPrefix}🚫 تم طرد (@${userNumber}) لعدم توثيق نفسه.`, { mentions:[joinedUserId] });
+                        await chat.sendMessage(
+                            `${botPrefix}🚫 تم طرد (@${userNumber}) لعدم توثيق نفسه.`,
+                            { mentions: [joinedUserId] }
+                        );
                     } catch (err) {}
-                    delete pendingMerchants[userKey]; delete pendingMerchantsData[userKey]; saveMerchants();
+                    delete pendingMerchants[userKey];
+                    delete pendingMerchantsData[userKey];
+                    saveMerchants();
                 }
             }, 10 * 60 * 1000);
 
             pendingMerchants[userKey] = { warningTimer, kickTimer, expireTime };
-            pendingMerchantsData[userKey] = expireTime; saveMerchants();
+            pendingMerchantsData[userKey] = expireTime;
+            saveMerchants();
         }
     } catch (error) {}
 });
@@ -197,7 +263,7 @@ client.on('message_create', async msg => {
 
         const isBotOwner = msg.fromMe || MY_ADMIN_NUMBERS.includes(senderNumber);
 
-        // ✅ السطر الكشاف لمعرفة هل قرأ البوت رسالتك أم لا (سيظهر في Railway)
+        // ✅ السطر الكشاف لمعرفة هل قرأ البوت رسالتك أم لا
         console.log(`📱 رسالة من: ${senderNumber} | المالك؟ ${isBotOwner} | النص: ${text.substring(0,15)}`);
 
         if (!groupSettings[chatId]) {
@@ -235,7 +301,7 @@ client.on('message_create', async msg => {
                 if (packageType === '1') { daysToAdd = 5; packageName = "الفترة التجريبية (5 أيام)"; }
                 else if (packageType === '2') { daysToAdd = 7; packageName = "باقة الأسبوع (7 أيام)"; }
                 else if (packageType === '3') { daysToAdd = 30; packageName = "باقة الشهر (30 يوم)"; }
-                else { return; } // يتجاهل الأوامر الخاطئة
+                else { return; } 
 
                 const newExpireAt = Date.now() + (daysToAdd * 24 * 60 * 60 * 1000);
                 groupSettings[chatId].expireAt = newExpireAt;
@@ -280,7 +346,7 @@ client.on('message_create', async msg => {
                 groupSettings[chatId].expiredNotified = true;
                 saveSettings();
             }
-            return; // إيقاف كل شيء لأن الاشتراك منتهي
+            return; 
         }
 
         // =========================================
@@ -353,7 +419,10 @@ client.on('message_create', async msg => {
             }
         }
 
-    } catch (err) {}
+    } catch (err) {
+        // ✅ هذا السطر هو الذي سيظهر لنا الخطأ بالتحديد إذا فشل في الإرسال
+        console.error('❌ خطأ في إرسال أو معالجة الرسالة:', err.message);
+    }
 });
 
 client.initialize();
