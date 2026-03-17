@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 // =========================================
-// 🗄️ 1. نظام الذاكرة الدائمة (Volume)
+// 🗄️ 1. نظام الذاكرة الدائمة
 // =========================================
 const dataPath = fs.existsSync('/data') ? '/data' : __dirname;
 const dbFile = path.join(dataPath, 'warnings.json');
@@ -42,7 +42,7 @@ function saveMerchants() {
 }
 
 // =========================================
-// 👑 2. أرقام المالك (المديرين)
+// 👑 2. أرقام المالكين
 // =========================================
 const MY_ADMIN_NUMBERS =[
     "201092996413",
@@ -92,13 +92,11 @@ const client = new Client({
 
 client.on('qr', qr => {
     qrcode.generate(qr, { small: true });
-    console.log('=========================================');
     console.log('🔗 امسك الهاتف وامسح الـ QR من الشاشة المربعة بالأعلى');
-    console.log('=========================================');
 });
 
 client.on('ready', () => {
-    console.log('✅ البوت جاهز ويعمل الآن بكفاءة ويقرأ الرسائل.');
+    console.log('✅ البوت جاهز ومدرع بالكامل ويعمل الآن.');
     restoreMerchantTimers();
 });
 
@@ -144,11 +142,6 @@ async function restoreMerchantTimers() {
             try {
                 const chat = await client.getChatById(chatId);
                 await chat.removeParticipants([userId]);
-                const userNumber = userId.split('@')[0];
-                await chat.sendMessage(
-                    `${botPrefix}🚫 تم طرد (@${userNumber}) لعدم توثيق نفسه.`,
-                    { mentions: [userId] }
-                );
             } catch (err) {}
             delete pendingMerchantsData[userKey];
         } else {
@@ -158,34 +151,24 @@ async function restoreMerchantTimers() {
                         const chat = await client.getChatById(chatId);
                         const userNumber = userId.split('@')[0];
                         await chat.removeParticipants([userId]);
-                        await chat.sendMessage(
-                            `${botPrefix}🚫 تم طرد (@${userNumber}) لعدم توثيق نفسه.`,
-                            { mentions: [userId] }
-                        );
+                        await chat.sendMessage(`${botPrefix}🚫 تم طرد (@${userNumber}) لعدم توثيق نفسه.`, { mentions: [userId] });
                     } catch (err) {}
-                    delete pendingMerchants[userKey];
-                    delete pendingMerchantsData[userKey];
-                    saveMerchants();
+                    delete pendingMerchants[userKey]; delete pendingMerchantsData[userKey]; saveMerchants();
                 }
             }, remaining);
 
             let warningTimer = null;
-            const warningDelay = remaining - (60 * 1000);
-            if (warningDelay > 0) {
+            if (remaining - (60 * 1000) > 0) {
                 warningTimer = setTimeout(async () => {
                     if (pendingMerchants[userKey]) {
                         try {
                             const chat = await client.getChatById(chatId);
                             const userNumber = userId.split('@')[0];
-                            await chat.sendMessage(
-                                `${botPrefix}⚠️ تنبيه أخير (@${userNumber})!\nمتبقي دقيقة لعمل منشن لـ 5 تجار أو سيتم طردك!`,
-                                { mentions: [userId] }
-                            );
+                            await chat.sendMessage(`${botPrefix}⚠️ تنبيه أخير (@${userNumber})!\nمتبقي دقيقة لعمل منشن لـ 5 تجار أو سيتم طردك!`, { mentions: [userId] });
                         } catch (err) {}
                     }
-                }, warningDelay);
+                }, remaining - (60 * 1000));
             }
-
             pendingMerchants[userKey] = { warningTimer, kickTimer, expireTime };
         }
     }
@@ -215,30 +198,21 @@ client.on('group_join', async (notification) => {
 
             const warningTimer = setTimeout(async () => {
                 if (pendingMerchants[userKey])
-                    await chat.sendMessage(
-                        `${botPrefix}⚠️ تنبيه أخير (@${userNumber})!\nمتبقي دقيقة لعمل منشن لـ 5 تجار أو سيتم طردك!`,
-                        { mentions: [joinedUserId] }
-                    );
+                    await chat.sendMessage(`${botPrefix}⚠️ تنبيه أخير (@${userNumber})!\nمتبقي دقيقة لعمل منشن لـ 5 تجار أو سيتم طردك!`, { mentions: [joinedUserId] });
             }, 9 * 60 * 1000);
 
             const kickTimer = setTimeout(async () => {
                 if (pendingMerchants[userKey]) {
                     try {
                         await chat.removeParticipants([joinedUserId]);
-                        await chat.sendMessage(
-                            `${botPrefix}🚫 تم طرد (@${userNumber}) لعدم توثيق نفسه.`,
-                            { mentions: [joinedUserId] }
-                        );
+                        await chat.sendMessage(`${botPrefix}🚫 تم طرد (@${userNumber}) لعدم توثيق نفسه.`, { mentions: [joinedUserId] });
                     } catch (err) {}
-                    delete pendingMerchants[userKey];
-                    delete pendingMerchantsData[userKey];
-                    saveMerchants();
+                    delete pendingMerchants[userKey]; delete pendingMerchantsData[userKey]; saveMerchants();
                 }
             }, 10 * 60 * 1000);
 
             pendingMerchants[userKey] = { warningTimer, kickTimer, expireTime };
-            pendingMerchantsData[userKey] = expireTime;
-            saveMerchants();
+            pendingMerchantsData[userKey] = expireTime; saveMerchants();
         }
     } catch (error) {}
 });
@@ -249,22 +223,16 @@ client.on('group_join', async (notification) => {
 client.on('message_create', async msg => {
     try {
         const chat = await msg.getChat();
-        if (!chat.isGroup) return; // البوت يتجاهل الخاص ويعمل في الجروبات فقط
+        if (!chat.isGroup) return;
 
-        // الاستخراج الدقيق للرقم
         let rawSenderId = msg.fromMe ? (msg.from || msg.to) : (msg.author || msg.from);
-        if (msg.fromMe && client.info && client.info.wid) {
-            rawSenderId = client.info.wid._serialized;
-        }
+        if (msg.fromMe && client.info && client.info.wid) { rawSenderId = client.info.wid._serialized; }
         const senderId = rawSenderId.replace(/:\d+/, "");
         const senderNumber = senderId.split('@')[0];
         const chatId = chat.id._serialized;
         const text = msg.body.trim();
 
         const isBotOwner = msg.fromMe || MY_ADMIN_NUMBERS.includes(senderNumber);
-
-        // ✅ السطر الكشاف لمعرفة هل قرأ البوت رسالتك أم لا
-        console.log(`📱 رسالة من: ${senderNumber} | المالك؟ ${isBotOwner} | النص: ${text.substring(0,15)}`);
 
         if (!groupSettings[chatId]) {
             groupSettings[chatId] = {
@@ -278,21 +246,17 @@ client.on('message_create', async msg => {
         // =========================================
         if (isBotOwner) {
             
-            // الزر السحري الجديد الشامل
             if (text === '!تفعيل الكل') {
-                const newExpireAt = Date.now() + (3650 * 24 * 60 * 60 * 1000); // تفعيل لمدة 10 سنوات
+                const newExpireAt = Date.now() + (3650 * 24 * 60 * 60 * 1000);
                 groupSettings[chatId].expireAt = newExpireAt;
-                groupSettings[chatId].links = true;
-                groupSettings[chatId].swear = true;
-                groupSettings[chatId].merchant = true;
-                groupSettings[chatId].stickers = true;
+                groupSettings[chatId].links = true; groupSettings[chatId].swear = true;
+                groupSettings[chatId].merchant = true; groupSettings[chatId].stickers = true;
                 groupSettings[chatId].expiredNotified = false;
                 saveSettings();
                 await chat.sendMessage(`${botPrefix}✅🔥 تم تفعيل **جميع ميزات البوت** بنجاح للجروب كباقة مدى الحياة!`);
                 return;
             }
 
-            // نظام الباقات الجديد
             if (text.startsWith('!تفعيل ')) {
                 const parts = text.split(' ');
                 const packageType = parts[1];
@@ -314,12 +278,14 @@ client.on('message_create', async msg => {
                 return;
             }
 
+            // إصلاح مشكلة السبام هنا ✅
             if (text === '!ايقاف الكل' || text === '!الغاء الاشتراك') {
                 groupSettings[chatId].expireAt = Date.now() - 1000;
+                groupSettings[chatId].expiredNotified = true; // تم جعلها true لمنع البوت من الإرسال التلقائي للجروب
                 groupSettings[chatId].links = false; groupSettings[chatId].swear = false;
                 groupSettings[chatId].merchant = false; groupSettings[chatId].stickers = false;
                 saveSettings();
-                await chat.sendMessage(`${botPrefix}🛑 تم إيقاف جميع الميزات. البوت الآن في وضع السكون.`);
+                await chat.sendMessage(`${botPrefix}🛑 تم إيقاف جميع الميزات وإلغاء الاشتراك بنجاح.`);
                 return;
             }
 
@@ -332,19 +298,52 @@ client.on('message_create', async msg => {
                 await chat.sendMessage(`${botPrefix}📊 تقرير الجروب:\nحالة الاشتراك: ${subStatus}`);
                 return;
             }
+
+            // إعادة أمر !كل الجروبات وإصلاحه ✅
+            if (text === '!كل الجروبات') {
+                const now = Date.now();
+                let report = `${botPrefix}📋 *تقرير الجروبات المسجلة:*\n\n`;
+                let active = 0, expired = 0;
+
+                for (const gId in groupSettings) {
+                    const gs = groupSettings[gId];
+                    if (!gs.expireAt) continue;
+                    
+                    if (gs.expireAt > now) {
+                        active++;
+                        const dLeft = Math.ceil((gs.expireAt - now) / (1000 * 60 * 60 * 24));
+                        report += `🟢 جروب مفعل (${dLeft} يوم)\n`;
+                    } else {
+                        expired++;
+                    }
+                }
+                report += `\n━━━━━━━━━━━━━━\n🟢 الإجمالي مفعل: ${active} | 🔴 منتهي: ${expired}`;
+
+                try {
+                    const dmChat = await client.getChatById(senderId);
+                    await dmChat.sendMessage(report);
+                    await chat.sendMessage(`${botPrefix}✅ تم إرسال التقرير الشامل إلى رسائلك الخاصة.`);
+                } catch (err) {
+                    await chat.sendMessage(`${botPrefix}⚠️ لم أتمكن من الإرسال للخاص. يرجى إرسال أي رسالة لي في الخاص أولاً (لفتح المحادثة) ثم جرب مرة أخرى.`);
+                }
+                return;
+            }
         }
 
         // =========================================
         // 🛑 البوابة الحديدية (التحقق من الاشتراك)
         // =========================================
         const settings = groupSettings[chatId];
-        if (!settings.expireAt) return; // الجروب غير مسجل أبداً
+        if (!settings.expireAt) return; 
 
+        // إصلاح مشكلة تكرار رسالة الانتهاء (حفظ قبل الإرسال)
         if (Date.now() > settings.expireAt) {
             if (!settings.expiredNotified) {
-                await chat.sendMessage(`⚠️ *تنبيه!*\nانتهت فترة اشتراك البوت في الجروب. يرجى التجديد للاستمرار.`);
-                groupSettings[chatId].expiredNotified = true;
-                saveSettings();
+                groupSettings[chatId].expiredNotified = true; // نغير الحالة أولاً
+                saveSettings(); // نحفظ
+                try {
+                    await chat.sendMessage(`⚠️ *تنبيه!*\nانتهت فترة اشتراك البوت في الجروب. يرجى التجديد للاستمرار.`);
+                } catch (e) {}
             }
             return; 
         }
@@ -358,13 +357,17 @@ client.on('message_create', async msg => {
             await chat.sendMessage(`${botPrefix}👤 أهلاً بك (@${senderNumber})\n⚠️ عدد إنذاراتك: ${count}/3.`, { mentions:[senderId] }); return;
         }
 
+        // إصلاح ثغرة الملصقات (يسمح بالصور فقط)
         if (text === '!ملصق' && settings.stickers) {
             try {
                 let targetMsg = msg.hasQuotedMsg ? await msg.getQuotedMessage() : msg;
                 if (targetMsg.hasMedia) {
                     const media = await targetMsg.downloadMedia();
-                    if (media && media.mimetype.includes('image')) {
+                    // التأكد الصارم أنها صورة وليست فيديو أو ملف ضخم
+                    if (media && (media.mimetype === 'image/jpeg' || media.mimetype === 'image/png')) {
                         await chat.sendMessage(media, { sendMediaAsSticker: true, stickerName: 'دارك فاير', stickerAuthor: 'Dark Fire Bot' });
+                    } else {
+                        await msg.reply('❌ عذراً، صانع الملصقات يدعم الصور العادية فقط.');
                     }
                 }
             } catch (error) {}
@@ -372,13 +375,14 @@ client.on('message_create', async msg => {
         }
 
         // =========================================
-        // 🛡️ توثيق التجار من خلال الرسالة
+        // 🛡️ توثيق التجار (إصلاح ثغرة المنشن الوهمي)
         // =========================================
         if (settings.merchant) {
             const userKey = `${chatId}_SPLIT_${senderId}`;
             if (pendingMerchants[userKey]) {
                 const mentions = await msg.getMentions();
-                if (mentions.length >= 5) {
+                // التأكد أنه منشن لأشخاص حقيقيين في الجروب وليس مجرد علامة @
+                if (mentions && mentions.length >= 5) {
                     clearTimeout(pendingMerchants[userKey].warningTimer);
                     clearTimeout(pendingMerchants[userKey].kickTimer);
                     delete pendingMerchants[userKey];
@@ -395,7 +399,7 @@ client.on('message_create', async msg => {
         const isSenderAdmin = chat.participants.find(p => p.id._serialized === senderId)?.isAdmin ||
                               chat.participants.find(p => p.id._serialized === senderId)?.isSuperAdmin;
         const isImmune = isSenderAdmin || isBotOwner;
-        if (isImmune) return; // تجاهل المشرفين والمالك من العقوبات
+        if (isImmune) return; 
 
         if (isSpamming(senderId)) { try { await msg.delete(true); } catch (e) {} return; }
 
@@ -419,10 +423,7 @@ client.on('message_create', async msg => {
             }
         }
 
-    } catch (err) {
-        // ✅ هذا السطر هو الذي سيظهر لنا الخطأ بالتحديد إذا فشل في الإرسال
-        console.error('❌ خطأ في إرسال أو معالجة الرسالة:', err.message);
-    }
+    } catch (err) {}
 });
 
 client.initialize();
