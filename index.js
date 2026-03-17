@@ -11,7 +11,6 @@ const dbFile = path.join(dataPath, 'warnings.json');
 const settingsFile = path.join(dataPath, 'settings.json');
 const merchantsFile = path.join(dataPath, 'merchants.json');
 
-// ✅ إصلاح: معالجة الملف الفارغ + الملف التالف
 function safeReadJSON(filePath, defaultValue = {}) {
     try {
         if (fs.existsSync(filePath)) {
@@ -63,11 +62,11 @@ function formatDate(timestamp) {
 }
 
 // =========================================
-// 🚫 4. نظام Anti-Spam (جديد)
+// 🚫 4. نظام Anti-Spam
 // =========================================
 const spamTracker = {};
-const SPAM_LIMIT = 6;       // عدد الرسائل المسموح بها
-const SPAM_WINDOW = 8000;   // في كل 8 ثوانٍ
+const SPAM_LIMIT = 6;
+const SPAM_WINDOW = 8000;
 
 function isSpamming(senderId) {
     const now = Date.now();
@@ -79,7 +78,6 @@ function isSpamming(senderId) {
     return spamTracker[senderId].count > SPAM_LIMIT;
 }
 
-// ✅ تنظيف spamTracker كل 10 دقائق لمنع تسرب الذاكرة
 setInterval(() => {
     const now = Date.now();
     for (const id in spamTracker) {
@@ -110,7 +108,6 @@ const client = new Client({
     }
 });
 
-// ✅ QR كرابط يعمل في Railway
 client.on('qr', qr => {
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qr)}`;
     console.log('🔗 افتح هذا الرابط لمسح الـ QR:\n' + qrUrl);
@@ -123,7 +120,6 @@ client.on('ready', () => {
     startRenewalChecker();
 });
 
-// ✅ إصلاح: منع تشغيل مزدوج + delay آمن
 let isReconnecting = false;
 client.on('disconnected', async () => {
     if (isReconnecting) return;
@@ -187,8 +183,6 @@ function startRenewalChecker() {
 // =========================================
 // 🛡️ 8. نظام توثيق التجار
 // =========================================
-
-// ✅ إصلاح: إعادة مؤقت التحذير أيضاً عند استئناف الجلسة
 async function restoreMerchantTimers() {
     const now = Date.now();
     for (const userKey in pendingMerchantsData) {
@@ -199,7 +193,6 @@ async function restoreMerchantTimers() {
         const userId = parts[1];
 
         if (remaining <= 0) {
-            // المهلة انتهت وهو offline — ننفذ الطرد الآن
             try {
                 const chat = await client.getChatById(chatId);
                 await chat.removeParticipants([userId]);
@@ -228,7 +221,6 @@ async function restoreMerchantTimers() {
                 }
             }, remaining);
 
-            // ✅ إصلاح: إعادة مؤقت التحذير إذا كان الوقت المتبقي أكثر من دقيقة
             let warningTimer = null;
             const warningDelay = remaining - (60 * 1000);
             if (warningDelay > 0) {
@@ -252,19 +244,14 @@ async function restoreMerchantTimers() {
     saveMerchants();
 }
 
-// ✅ إصلاح 1: loop على كل من انضم (إضافة جماعية)
-// ✅ إصلاح 2: تجاهل أرقام المالك عند الانضمام
 client.on('group_join', async (notification) => {
     try {
         const chatId = notification.chatId;
         const settings = groupSettings[chatId];
         if (!settings || !settings.merchant || !settings.expireAt || Date.now() > settings.expireAt) return;
 
-        // ✅ loop على كل الأعضاء المنضمين دفعة واحدة
         for (const joinedUserId of notification.recipientIds) {
             const userNumber = joinedUserId.split('@')[0];
-
-            // ✅ إصلاح: تجاهل المالك — لا يُطبَّق عليه نظام التوثيق
             if (MY_ADMIN_NUMBERS.includes(userNumber)) continue;
 
             const chat = await client.getChatById(chatId);
@@ -321,6 +308,9 @@ client.on('message_create', async msg => {
         const senderNumber = senderId.split('@')[0];
         const chatId = chat.id._serialized;
         const text = msg.body.trim();
+
+        // ✅ سطر مؤقت لكشف الرقم — سنحذفه بعد التأكيد
+        console.log(`📱 المرسل: ${senderNumber} | مالك؟ ${MY_ADMIN_NUMBERS.includes(senderNumber)} | fromMe: ${msg.fromMe}`);
 
         const isBotOwner = msg.fromMe || MY_ADMIN_NUMBERS.includes(senderNumber);
 
@@ -416,7 +406,6 @@ client.on('message_create', async msg => {
                 return;
             }
 
-            // ✅ إصلاح: لا يُرسل التقرير في الجروب أبداً — فقط في الخاص
             if (text === '!كل الجروبات') {
                 const now = Date.now();
                 let report = `${botPrefix}📋 *تقرير كل الجروبات المسجلة:*\n\n`;
@@ -441,7 +430,6 @@ client.on('message_create', async msg => {
                     await ownerChat.sendMessage(report);
                     await chat.sendMessage(`${botPrefix}✅ تم إرسال التقرير إلى خاصك.`);
                 } catch (err) {
-                    // ✅ إصلاح: في حالة الفشل لا نكشف البيانات في الجروب
                     await chat.sendMessage(`${botPrefix}⚠️ تعذّر إرسال التقرير في الخاص.\nتأكد أنك أرسلت للبوت رسالة في الخاص أولاً.`);
                 }
                 return;
@@ -493,11 +481,9 @@ client.on('message_create', async msg => {
             return;
         }
 
-        // ✅ إصلاح: !ملصق يعمل أيضاً عند الرد على صورة
         if (text === '!ملصق' && settings.stickers) {
             try {
                 let targetMsg = msg;
-                // إذا لم تكن الرسالة الحالية تحتوي ميديا، ابحث في الرسالة المُشار إليها
                 if (!msg.hasMedia && msg.hasQuotedMsg) {
                     targetMsg = await msg.getQuotedMessage();
                 }
@@ -537,10 +523,8 @@ client.on('message_create', async msg => {
         const isImmune = isSenderAdmin || msg.fromMe || MY_ADMIN_NUMBERS.includes(senderNumber);
         if (isImmune) return;
 
-        // ✅ فحص Anti-Spam قبل أي عقوبة
         if (isSpamming(senderId)) {
             try { await msg.delete(true); } catch (e) {}
-            // نتجنب إرسال رسالة تحذير لكل رسالة spam لتجنب الفيضان
             return;
         }
 
@@ -588,3 +572,12 @@ client.initialize();
 process.on('SIGINT', async () => {
     try { await client.destroy(); process.exit(0); } catch (err) { process.exit(1); }
 });
+```
+
+---
+
+## بعد النشر — خطوتان فقط:
+
+**1.** أرسل أي رسالة في الجروب، افتح الـ logs وستجد:
+```
+📱 المرسل: 201092996413 | مالك؟ true | fromMe: false
