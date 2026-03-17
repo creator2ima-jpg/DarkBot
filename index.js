@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 // =========================================
-// 🗄️ 1. نظام الذاكرة الدائمة (Volume)
+// 🗄️ 1. نظام الذاكرة الدائمة
 // =========================================
 const dataPath = fs.existsSync('/data') ? '/data' : __dirname;
 const dbFile = path.join(dataPath, 'warnings.json');
@@ -132,18 +132,58 @@ client.on('disconnected', async () => {
 });
 
 // =========================================
-// ⚙️ 5. إعدادات القوانين والكلمات المسيئة
+// ⚙️ 5. إعدادات القوانين والكلمات المسيئة + الذكاء الاصطناعي للكلمات
 // =========================================
 const botPrefix = "بوت دارك فاير | Dark Fire Bot \n\n";
-const rulesText = `لائحة القوانين:\n1. ممنوع إرسال لينكات 🟥\n2. شتائم = كيك (طرد) 🟥\n3. صلِّ على النبي في قلبك كده، واذكر الله.`;
+const rulesText = `لائحة القوانين:\n1. ممنوع إرسال لينكات 🟥\n2. شتائم = كيك (طرد) 🟥\n3. ممنوع المنشن الجماعي المزعج 🟥\n4. صلِّ على النبي في قلبك كده، واذكر الله.`;
 
-const badWords =['شرموط', 'متناك', 'غبي', 'حمار', 'كلب'];
+// القائمة المحدثة بالشتائم الجديدة
+const badWords =['شرموط', 'متناك', 'غبي', 'حمار', 'كلب', 'عرص', 'خول', 'علق', 'زاني', 'زانية', 'سكس', 'كسمك'];
+
 function cleanText(text) {
     let t = text.toLowerCase().replace(/[\u0617-\u061A\u064B-\u0652]/g, "");
     t = t.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
     return t.replace(/[^a-zA-Z\u0621-\u064A\s]/g, "").replace(/(.)\1+/gu, "$1");
 }
 const cleanedBadWords = badWords.map(word => cleanText(word));
+
+// خوارزمية Levenshtein Distance (لاكتشاف التغيير في حرف واحد للتحايل)
+function getLevenshteinDistance(a, b) {
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+    var matrix =[];
+    for (var i = 0; i <= b.length; i++) { matrix[i] = [i]; }
+    for (var j = 0; j <= a.length; j++) { matrix[0][j] = j; }
+    for (var i = 1; i <= b.length; i++) {
+        for (var j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) == a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1));
+            }
+        }
+    }
+    return matrix[b.length][a.length];
+}
+
+// دالة فحص الكلمات المطورة (تكتشف التطابق + التحايل بحرف واحد)
+function containsBadWordFuzzy(messageText) {
+    const cleanedMessage = cleanText(messageText);
+    const messageWords = cleanedMessage.split(/\s+/);
+    
+    return messageWords.some(userWord => {
+        return cleanedBadWords.some(badWord => {
+            // 1. تطابق تام
+            if (userWord === badWord) return true;
+            // 2. تطابق متقارب (التحايل بحرف واحد) للكلمات التي طولها 4 حروف أو أكثر
+            if (badWord.length >= 4 && Math.abs(userWord.length - badWord.length) <= 1) {
+                const distance = getLevenshteinDistance(userWord, badWord);
+                if (distance <= 1) return true; // مسموح بخطأ/تحايل في حرف واحد فقط
+            }
+            return false;
+        });
+    });
+}
 
 // =========================================
 // 🛡️ 6. نظام توثيق التجار (30 دقيقة)
@@ -225,7 +265,7 @@ client.on('group_join', async (notification) => {
                 if (pendingMerchants[userKey]) {
                     try {
                         await chat.removeParticipants([joinedUserId]);
-                        await chat.sendMessage(`${botPrefix}🚫 تم طرد (@${userNumber}) لتجاوزه المهلة (30 دقيقة) بدون توثيق.`, { mentions: [joinedUserId] });
+                        await chat.sendMessage(`${botPrefix}🚫 تم طرد (@${userNumber}) لتجاوزه المهلة (30 دقيقة) بدون توثيق.`, { mentions:[joinedUserId] });
                     } catch (err) {}
                     delete pendingMerchants[userKey]; delete pendingMerchantsData[userKey]; saveMerchants();
                 }
@@ -262,21 +302,28 @@ client.on('message_create', async msg => {
         }
 
         // =========================================
-        // 🌟 أوامر المالك فقط 🌟
+        // 🌟 أوامر المالك (إدارة مرنة للميزات) 🌟
         // =========================================
         if (isBotOwner) {
             
-            if (text === '!نظام الروابط طرد') {
-                groupSettings[chatId].linkAction = 'kick'; saveSettings();
-                await chat.sendMessage(`${botPrefix}⚙️ تم ضبط نظام الروابط: (حذف + طرد بعد 3 إنذارات).`);
-                return;
-            }
-            if (text === '!نظام الروابط حذف') {
-                groupSettings[chatId].linkAction = 'deleteOnly'; saveSettings();
-                await chat.sendMessage(`${botPrefix}⚙️ تم ضبط نظام الروابط: (حذف فقط بدون طرد).`);
-                return;
-            }
+            // --- أوامر التشغيل والايقاف الفردية للخصائص ---
+            if (text === '!تفعيل الروابط') { groupSettings[chatId].links = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تشغيل نظام مكافحة الروابط.`); return; }
+            if (text === '!ايقاف الروابط') { groupSettings[chatId].links = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف نظام مكافحة الروابط.`); return; }
+            
+            if (text === '!تفعيل الشتائم') { groupSettings[chatId].swear = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تشغيل الفلتر الذكي للشتائم.`); return; }
+            if (text === '!ايقاف الشتائم') { groupSettings[chatId].swear = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف فلتر الشتائم.`); return; }
+            
+            if (text === '!تفعيل التجار') { groupSettings[chatId].merchant = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تشغيل نظام توثيق التجار.`); return; }
+            if (text === '!ايقاف التجار') { groupSettings[chatId].merchant = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف نظام توثيق التجار.`); return; }
+            
+            if (text === '!تفعيل الملصقات') { groupSettings[chatId].stickers = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تشغيل صانع الملصقات.`); return; }
+            if (text === '!ايقاف الملصقات') { groupSettings[chatId].stickers = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف صانع الملصقات.`); return; }
 
+            // --- التحكم في نظام الروابط (طرد / حذف) ---
+            if (text === '!نظام الروابط طرد') { groupSettings[chatId].linkAction = 'kick'; saveSettings(); await chat.sendMessage(`${botPrefix}⚙️ تم ضبط نظام الروابط: (طرد بعد 3 إنذارات).`); return; }
+            if (text === '!نظام الروابط حذف') { groupSettings[chatId].linkAction = 'deleteOnly'; saveSettings(); await chat.sendMessage(`${botPrefix}⚙️ تم ضبط نظام الروابط: (حذف فقط بدون طرد).`); return; }
+
+            // --- أوامر الاشتراكات والباقات ---
             if (text === '!تفعيل الكل') {
                 const newExpireAt = Date.now() + (3650 * 24 * 60 * 60 * 1000);
                 groupSettings[chatId].expireAt = newExpireAt;
@@ -325,11 +372,15 @@ client.on('message_create', async msg => {
                     subStatus = `مفعل (${daysLeft} يوم متبقي)\nينتهي: ${formatDate(groupSettings[chatId].expireAt)}`;
                 }
                 const linkSys = groupSettings[chatId].linkAction === 'deleteOnly' ? 'حذف فقط' : 'طرد';
-                await chat.sendMessage(`${botPrefix}📊 التقرير:\nالاشتراك: ${subStatus}\nنظام الروابط: ${linkSys}`);
+                const f_links = groupSettings[chatId].links ? '✅' : '❌';
+                const f_swear = groupSettings[chatId].swear ? '✅' : '❌';
+                const f_merch = groupSettings[chatId].merchant ? '✅' : '❌';
+                const f_stick = groupSettings[chatId].stickers ? '✅' : '❌';
+                
+                await chat.sendMessage(`${botPrefix}📊 تقرير شامل للجروب:\n\n*الاشتراك:* ${subStatus}\n*نظام الروابط:* ${linkSys}\n\n*الميزات النشطة:*\nالروابط: ${f_links} | الشتائم: ${f_swear}\nالتجار: ${f_merch} | الملصقات: ${f_stick}`);
                 return;
             }
 
-            // إصلاح أمر كل الجروبات وإجبار إظهار الاسم والآي دي ✅
             if (text === '!كل الجروبات') {
                 const now = Date.now();
                 let report = `${botPrefix}📋 *تقرير الجروبات المسجلة:*\n\n`;
@@ -339,12 +390,10 @@ client.on('message_create', async msg => {
                     const gs = groupSettings[gId];
                     if (!gs.expireAt) continue;
                     
-                    let groupName = "غير معروف (قد يكون البوت غير متواجد)";
+                    let groupName = "غير معروف";
                     try {
                         const targetChat = await client.getChatById(gId);
-                        if (targetChat && targetChat.name) {
-                            groupName = targetChat.name;
-                        }
+                        if (targetChat && targetChat.name) { groupName = targetChat.name; }
                     } catch (e) {}
                     
                     if (gs.expireAt > now) {
@@ -370,7 +419,7 @@ client.on('message_create', async msg => {
         }
 
         // =========================================
-        // 🛑 البوابة الحديدية 
+        // 🛑 البوابة الحديدية (التحقق من مدة الاشتراك)
         // =========================================
         const settings = groupSettings[chatId];
         if (!settings.expireAt) return; 
@@ -385,7 +434,7 @@ client.on('message_create', async msg => {
         }
 
         // =========================================
-        // 🌟 أوامر الأعضاء 
+        // 🌟 أوامر الأعضاء والأنظمة المسموحة للجميع
         // =========================================
         if (text === '!قوانين') { await chat.sendMessage(`${botPrefix}${rulesText}`); return; }
         
@@ -410,6 +459,7 @@ client.on('message_create', async msg => {
             return;
         }
 
+        // توثيق التجار (من خلال المنشن)
         if (settings.merchant) {
             const userKey = `${chatId}_SPLIT_${senderId}`;
             if (pendingMerchants[userKey]) {
@@ -423,19 +473,37 @@ client.on('message_create', async msg => {
             }
         }
 
+        // =========================================
+        // ⚖️ الحصانة القوية للمشرفين والمالك
+        // =========================================
         const isSenderAdmin = chat.participants.find(p => p.id._serialized === senderId)?.isAdmin ||
                               chat.participants.find(p => p.id._serialized === senderId)?.isSuperAdmin;
         const isImmune = isSenderAdmin || isBotOwner;
-        if (isImmune) return; 
+        
+        if (isImmune) return; // 🛑 البوت يتوقف هنا تماماً إذا كان المرسل مشرفاً
 
+        // =========================================
+        // ⚔️ العقوبات للأعضاء العاديين فقط
+        // =========================================
+        
+        // 1. نظام Anti-Spam (منع الإزعاج)
         if (isSpamming(senderId)) { try { await msg.delete(true); } catch (e) {} return; }
 
-        if (settings.swear && cleanText(msg.body).split(/\s+/).some(word => cleanedBadWords.includes(word))) {
+        // 2. نظام منع المنشن الجماعي (Anti-Mass Mention)
+        if (msg.mentionedIds && msg.mentionedIds.length > 10) {
             try { await msg.delete(true); } catch (error) {}
-            await chat.sendMessage(`${botPrefix}⚠️ الشتائم ممنوعة يا (@${senderNumber})!`, { mentions:[senderId] });
+            await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع استخدام المنشن الجماعي المزعج في هذا الجروب.`, { mentions: [senderId] });
             return;
         }
 
+        // 3. نظام مكافحة الشتائم المتطور (الذكاء الاصطناعي)
+        if (settings.swear && containsBadWordFuzzy(msg.body)) {
+            try { await msg.delete(true); } catch (error) {}
+            await chat.sendMessage(`${botPrefix}⚠️ الشتائم والتحايل بالألفاظ ممنوع يا (@${senderNumber})!`, { mentions:[senderId] });
+            return;
+        }
+
+        // 4. نظام منع الروابط
         if (settings.links && /(https?:\/\/[^\s]+)/g.test(msg.body)) {
             try { await msg.delete(true); } catch (error) {}
             
