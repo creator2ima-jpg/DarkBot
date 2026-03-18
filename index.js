@@ -589,7 +589,7 @@ client.on('message_create', async msg => {
 
                 if (shouldStrike) {
                     if (botIsAdmin) { try { await msg.delete(true); } catch (error) {} }
-                    await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع استخدام منشن (@الكل) ${targetString} في هذا الجروب.`, { mentions: [senderId] });
+                    await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع استخدام منشن (الكل) ${targetString} في هذا الجروب.`, { mentions: [senderId] });
                     return; // توقف هنا ولا تكمل
                 }
             }
