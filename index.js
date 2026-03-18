@@ -252,7 +252,7 @@ client.on('group_join', async (notification) => {
                             await chat.removeParticipants([joinedUserId]);
                             await chat.sendMessage(`${botPrefix}🚫 تم طرد (@${userNumber}) لتجاوزه المهلة بدون توثيق.`, { mentions:[joinedUserId] });
                         } else {
-                            await chat.sendMessage(`${botPrefix}🚫 العضو (@${userNumber}) لم يوثق نفسه.\n(يرجى طرده، البوت منزوع الصلاحيات!)`, { mentions:[joinedUserId] });
+                            await chat.sendMessage(`${botPrefix}🚫 العضو (@${userNumber}) لم يوثق نفسه.\n(يرجى طرده، البوت منزوع الصلاحيات!)`, { mentions: [joinedUserId] });
                         }
                     } catch (err) {}
                     delete pendingMerchants[userKey]; delete pendingMerchantsData[userKey]; saveMerchants();
@@ -390,14 +390,15 @@ client.on('message_create', async msg => {
                 return;
             }
 
-            if (text === '!ايقاف الكل' || text === '!الغاء الاشتراك') {
+            // ✅ إصلاح أمر إيقاف الاشتراك لتشمل كل المترادفات
+            if (text === '!ايقاف الكل' || text === '!الغاء الاشتراك' || text === '!ايقاف الاشتراك') {
                 groupSettings[chatId].expireAt = Date.now() - 1000;
                 groupSettings[chatId].expiredNotified = true; 
                 groupSettings[chatId].links = false; groupSettings[chatId].swear = false;
                 groupSettings[chatId].merchant = false; groupSettings[chatId].stickers = false;
                 groupSettings[chatId].antiMention = false;
                 saveSettings();
-                await chat.sendMessage(`${botPrefix}🛑 تم إيقاف جميع الميزات بنجاح.`);
+                await chat.sendMessage(`${botPrefix}🛑 تم إيقاف جميع الميزات وإلغاء الاشتراك بنجاح.`);
                 return;
             }
 
@@ -415,6 +416,45 @@ client.on('message_create', async msg => {
                 const f_mention = groupSettings[chatId].antiMention ? '✅' : '❌';
                 
                 await chat.sendMessage(`${botPrefix}📊 تقرير شامل للجروب:\n\n*الاشتراك:* ${subStatus}\n*نظام الروابط:* ${linkSys}\n\n*الميزات النشطة:*\nالروابط: ${f_links} | الشتائم: ${f_swear}\nالتجار: ${f_merch} | الملصقات: ${f_stick}\nمنع المنشن: ${f_mention}`);
+                return;
+            }
+
+            // ✅ إصلاح أمر كل الجروبات لتجنب التهنيج (Timeout) وجلب الأسماء من الذاكرة مباشرة
+            if (text === '!كل الجروبات' || text === '!الجروبات') {
+                await chat.sendMessage(`${botPrefix}⏳ جاري جمع البيانات، يرجى الانتظار ثوانٍ...`);
+                const now = Date.now();
+                let report = `${botPrefix}📋 *تقرير الجروبات المسجلة:*\n\n`;
+                let active = 0, expired = 0;
+
+                let allChats =[];
+                try { allChats = await client.getChats(); } catch(e) {}
+
+                for (const gId in groupSettings) {
+                    const gs = groupSettings[gId];
+                    if (!gs.expireAt) continue;
+                    
+                    let groupName = "غير معروف";
+                    const targetChat = allChats.find(c => c.id._serialized === gId);
+                    if (targetChat && targetChat.name) { groupName = targetChat.name; }
+                    
+                    if (gs.expireAt > now) {
+                        active++;
+                        const dLeft = Math.ceil((gs.expireAt - now) / (1000 * 60 * 60 * 24));
+                        report += `🟢 *الاسم:* ${groupName}\n🆔 *الآيدي:* ${gId}\n⏳ *الحالة:* مفعل (باقي ${dLeft} يوم)\n\n`;
+                    } else {
+                        expired++;
+                        report += `🔴 *الاسم:* ${groupName}\n🆔 *الآيدي:* ${gId}\n❌ *الحالة:* منتهي\n\n`;
+                    }
+                }
+                report += `━━━━━━━━━━━━━━\n🟢 مفعل: ${active} | 🔴 منتهي: ${expired}`;
+
+                try {
+                    const dmChat = await client.getChatById(senderId);
+                    await dmChat.sendMessage(report);
+                    await chat.sendMessage(`${botPrefix}✅ تم إرسال التقرير الشامل إلى الخاص.`);
+                } catch (err) {
+                    await chat.sendMessage(`${botPrefix}⚠️ أرسل لي أي رسالة في الخاص أولاً لكي أستطيع إرسال التقرير لك.`);
+                }
                 return;
             }
         }
@@ -501,7 +541,7 @@ client.on('message_create', async msg => {
             }
         }
 
-        // 3. مكافحة الشتائم (الرد بكلمة ثكلتك أمك)
+        // 3. مكافحة الشتائم
         if (settings.swear && containsBadWordSmart(msg.body)) {
             if (botIsAdmin) { try { await msg.delete(true); } catch (error) {} }
             await chat.sendMessage(`${botPrefix}⚠️ ثكلتك أمك يا (@${senderNumber})!\nقال رسول الله ﷺ: «لَيْسَ المُؤْمِنُ بِالطَّعَّانِ وَلَا اللَّعَّانِ وَلَا الفَاحِشِ وَلَا البَذِيءِ».`, { mentions:[senderId] });
