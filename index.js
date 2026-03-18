@@ -134,7 +134,7 @@ client.on('disconnected', async () => {
 // ⚙️ 5. إعدادات القوانين والكلمات المسيئة 
 // =========================================
 const botPrefix = "بوت دارك فاير | Dark Fire Bot \n\n";
-const rulesText = `لائحة القوانين:\n1. ممنوع إرسال لينكات 🟥\n2. شتائم = كيك (طرد) 🟥\n3. ممنوع المنشن الجماعي المزعج 🟥\n4. صلِّ على النبي في قلبك كده، واذكر الله.`;
+const rulesText = `لائحة القوانين:\n1. ممنوع إرسال لينكات 🟥\n2. شتائم = كيك (طرد) 🟥\n3. ممنوع منشن للكل 🟥\n4. صلِّ على النبي في قلبك كده، واذكر الله.`;
 
 const badWords =['شرموط', 'متناك', 'غبي', 'حمار', 'كلب', 'عرص', 'خول', 'علق', 'زاني', 'زانية', 'سكس', 'كسمك', 'كشمك', 'كس'];
 
@@ -239,7 +239,7 @@ client.on('group_join', async (notification) => {
 
             const warningTimer = setTimeout(async () => {
                 if (pendingMerchants[userKey])
-                    await chat.sendMessage(`${botPrefix}⚠️ تنبيه أخير (@${userNumber})!\nمتبقي 3 دقائق لعمل منشن لـ 5 تجار!`, { mentions:[joinedUserId] });
+                    await chat.sendMessage(`${botPrefix}⚠️ تنبيه أخير (@${userNumber})!\nمتبقي 3 دقائق لعمل منشن لـ 5 تجار!`, { mentions: [joinedUserId] });
             }, 27 * 60 * 1000); 
 
             const kickTimer = setTimeout(async () => {
@@ -271,7 +271,7 @@ client.on('group_admin_changed', async (notification) => {
             const chat = await client.getChatById(notification.chatId);
             for (const adminId of notification.recipientIds) {
                 const adminNumber = adminId.split('@')[0];
-                await chat.sendMessage(`${botPrefix}🔄[تحديث النظام]\nتم التعرف على المشرف الجديد (@${adminNumber}) وإعطائه الحصانة الكاملة ✅.`, { mentions: [adminId] });
+                await chat.sendMessage(`${botPrefix}🔄 [تحديث النظام]\nتم التعرف على المشرف الجديد (@${adminNumber}) وإعطائه الحصانة الكاملة ✅.`, { mentions: [adminId] });
             }
         }
     } catch (err) {}
@@ -285,22 +285,23 @@ client.on('message_create', async msg => {
         const chat = await msg.getChat();
         if (!chat.isGroup) return;
 
-        // 🌟 المترجم الفولاذي: استخراج الرقم الحقيقي إجبارياً
-        let senderId = msg.fromMe ? client.info.wid._serialized : (msg.author || msg.from);
-        senderId = senderId.replace(/:\d+/, ""); // إزالة كود الجهاز
+        let rawSenderId = msg.fromMe ? (msg.from || msg.to) : (msg.author || msg.from);
+        if (msg.fromMe && client.info && client.info.wid) { rawSenderId = client.info.wid._serialized; }
         
+        let senderId = rawSenderId.replace(/:\d+/, "");
+
         try {
             const contact = await msg.getContact();
-            if (contact && contact.number) {
-                senderId = `${contact.number}@c.us`; // إجبار البوت على رؤية الرقم بصيغة c.us دائماً
+            if (contact && contact.id && contact.id._serialized) {
+                senderId = contact.id._serialized; 
             }
-        } catch (e) {}
+        } catch(e) {}
 
         const senderNumber = senderId.split('@')[0];
         const chatId = chat.id._serialized;
         const text = msg.body.trim();
 
-        // هل المرسل هو المالك؟
+        // هل المرسل هو المالك؟ 
         const isBotOwner = msg.fromMe || MY_ADMIN_NUMBERS.includes(senderNumber);
 
         // هل البوت مشرف حالياً؟
@@ -310,18 +311,18 @@ client.on('message_create', async msg => {
             botIsAdmin = chat.participants.some(p => p.id._serialized === botId && (p.isAdmin || p.isSuperAdmin));
         } catch(e) {}
 
-        // هل المرسل مشرف حالياً في الذاكرة؟
+        // هل المرسل مشرف حالياً في الذاكرة؟ 
         const isSenderAdmin = chat.participants.some(p => p.id._serialized === senderId && (p.isAdmin || p.isSuperAdmin));
 
         if (!groupSettings[chatId]) {
             groupSettings[chatId] = {
                 links: false, swear: false, merchant: false, stickers: false, 
-                linkAction: 'kick', expireAt: null, expiredNotified: false
+                antiMention: false, linkAction: 'kick', expireAt: null, expiredNotified: false
             };
         }
 
         // =========================================
-        // 🌟 أمر كشف الصلاحيات (أداة التشخيص)
+        // 🌟 أمر كشف الصلاحيات
         // =========================================
         if (text === '!صلاحياتي') {
             await chat.sendMessage(
@@ -350,6 +351,9 @@ client.on('message_create', async msg => {
             if (text === '!تفعيل الملصقات') { groupSettings[chatId].stickers = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تشغيل صانع الملصقات.`); return; }
             if (text === '!ايقاف الملصقات') { groupSettings[chatId].stickers = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف صانع الملصقات.`); return; }
 
+            if (text === '!تفعيل المنشن') { groupSettings[chatId].antiMention = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تشغيل نظام منع منشن (@الكل).`); return; }
+            if (text === '!ايقاف المنشن') { groupSettings[chatId].antiMention = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف نظام منع منشن (@الكل).`); return; }
+
             if (text === '!نظام الروابط طرد') { groupSettings[chatId].linkAction = 'kick'; saveSettings(); await chat.sendMessage(`${botPrefix}⚙️ تم ضبط نظام الروابط: (طرد بعد 3 إنذارات).`); return; }
             if (text === '!نظام الروابط حذف') { groupSettings[chatId].linkAction = 'deleteOnly'; saveSettings(); await chat.sendMessage(`${botPrefix}⚙️ تم ضبط نظام الروابط: (حذف فقط بدون طرد).`); return; }
 
@@ -358,6 +362,7 @@ client.on('message_create', async msg => {
                 groupSettings[chatId].expireAt = newExpireAt;
                 groupSettings[chatId].links = true; groupSettings[chatId].swear = true;
                 groupSettings[chatId].merchant = true; groupSettings[chatId].stickers = true;
+                groupSettings[chatId].antiMention = true;
                 groupSettings[chatId].expiredNotified = false;
                 saveSettings();
                 await chat.sendMessage(`${botPrefix}✅🔥 تم تفعيل **جميع الميزات** كباقة مدى الحياة!`);
@@ -379,6 +384,7 @@ client.on('message_create', async msg => {
                 groupSettings[chatId].expiredNotified = false;
                 groupSettings[chatId].links = true; groupSettings[chatId].swear = true;
                 groupSettings[chatId].merchant = true; groupSettings[chatId].stickers = true;
+                groupSettings[chatId].antiMention = true;
                 saveSettings();
                 await chat.sendMessage(`✅ *تم تفعيل البوت!*\n📦 *الباقة:* ${packageName}\n🛑 *ينتهي:* ${formatDate(newExpireAt)}`);
                 return;
@@ -389,6 +395,7 @@ client.on('message_create', async msg => {
                 groupSettings[chatId].expiredNotified = true; 
                 groupSettings[chatId].links = false; groupSettings[chatId].swear = false;
                 groupSettings[chatId].merchant = false; groupSettings[chatId].stickers = false;
+                groupSettings[chatId].antiMention = false;
                 saveSettings();
                 await chat.sendMessage(`${botPrefix}🛑 تم إيقاف جميع الميزات بنجاح.`);
                 return;
@@ -405,8 +412,9 @@ client.on('message_create', async msg => {
                 const f_swear = groupSettings[chatId].swear ? '✅' : '❌';
                 const f_merch = groupSettings[chatId].merchant ? '✅' : '❌';
                 const f_stick = groupSettings[chatId].stickers ? '✅' : '❌';
+                const f_mention = groupSettings[chatId].antiMention ? '✅' : '❌';
                 
-                await chat.sendMessage(`${botPrefix}📊 تقرير شامل للجروب:\n\n*الاشتراك:* ${subStatus}\n*نظام الروابط:* ${linkSys}\n\n*الميزات النشطة:*\nالروابط: ${f_links} | الشتائم: ${f_swear}\nالتجار: ${f_merch} | الملصقات: ${f_stick}`);
+                await chat.sendMessage(`${botPrefix}📊 تقرير شامل للجروب:\n\n*الاشتراك:* ${subStatus}\n*نظام الروابط:* ${linkSys}\n\n*الميزات النشطة:*\nالروابط: ${f_links} | الشتائم: ${f_swear}\nالتجار: ${f_merch} | الملصقات: ${f_stick}\nمنع المنشن: ${f_mention}`);
                 return;
             }
         }
@@ -465,15 +473,15 @@ client.on('message_create', async msg => {
         }
 
         // =========================================
-        // ⚖️ الحصانة الدبلوماسية للمشرفين
+        // ⚖️ الحصانة الدبلوماسية
         // =========================================
-        // 🛑 الحصانة تمنح للمشرفين فقط (بما فيهم المالك إذا كان مشرفاً). 
         if (msg.fromMe || isSenderAdmin) return; 
 
         // =========================================
         // ⚔️ العقوبات (تُطبق على الأعضاء العاديين فقط)
         // =========================================
         
+        // 1. نظام Anti-Spam
         const spamming = isSpamming(senderId);
         if (spamming) {
             if (botIsAdmin) { try { await msg.delete(true); } catch (e) {} }
@@ -483,12 +491,24 @@ client.on('message_create', async msg => {
             return; 
         }
 
+        // 2. نظام منع منشن @الكل (Anti-Everyone Mention)
+        if (settings.antiMention) {
+            const hasAllTag = text.includes('@الكل') || text.includes('@all') || text.includes('@everyone');
+            if (hasAllTag) {
+                if (botIsAdmin) { try { await msg.delete(true); } catch (error) {} }
+                await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع استخدام منشن (@الكل) لإزعاج الأعضاء في هذا الجروب.`, { mentions: [senderId] });
+                return;
+            }
+        }
+
+        // 3. مكافحة الشتائم (الرد بكلمة ثكلتك أمك)
         if (settings.swear && containsBadWordSmart(msg.body)) {
             if (botIsAdmin) { try { await msg.delete(true); } catch (error) {} }
-            await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nقال رسول الله ﷺ: «لَيْسَ المُؤْمِنُ بِالطَّعَّانِ وَلَا اللَّعَّانِ وَلَا الفَاحِشِ وَلَا البَذِيءِ».`, { mentions:[senderId] });
+            await chat.sendMessage(`${botPrefix}⚠️ ثكلتك أمك يا (@${senderNumber})!\nقال رسول الله ﷺ: «لَيْسَ المُؤْمِنُ بِالطَّعَّانِ وَلَا اللَّعَّانِ وَلَا الفَاحِشِ وَلَا البَذِيءِ».`, { mentions:[senderId] });
             return;
         }
 
+        // 4. نظام منع الروابط 
         if (settings.links && /(https?:\/\/[^\s]+)/i.test(msg.body)) {
             if (botIsAdmin) { try { await msg.delete(true); } catch (error) {} }
             
