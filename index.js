@@ -1,7 +1,20 @@
+const express = require('express');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
+
+// =========================================
+// 🌐 خادم ويب بسيط لمنع Railway من إيقاف البوت
+// =========================================
+const app = express();
+const PORT = process.env.PORT || 3000;
+app.get('/', (req, res) => {
+    res.send('البوت يعمل بنجاح وبدون توقف!');
+});
+app.listen(PORT, () => {
+    console.log(`🌍 خادم الويب يعمل على المنفذ ${PORT} (تم حل مشكلة التوقف التلقائي)`);
+});
 
 // =========================================
 // 🗄️ 1. نظام الذاكرة الدائمة
@@ -649,7 +662,7 @@ client.on('message_create', async msg => {
 
         if (settings.swear && containsBadWordSmart(msg.body)) {
             if (botIsAdmin) { try { await msg.delete(true); } catch (error) {} }
-            await chat.sendMessage(`${botPrefix}⚠️ ثكلتك أمك يا (@${senderNumber})!\nقال رسول الله ﷺ: «لَيْسَ المُؤْمِنُ بِالطَّعَّانِ وَلَا اللَّعَّانِ وَلَا الفَاحِشِ وَلَا البَذِيءِ».`, { mentions:[senderId] });
+            await chat.sendMessage(`${botPrefix}⚠️ ثكلتك أمك يا (@${senderNumber})!\nقال رسول الله ﷺ: «لَيْسَ المُؤْمِنُ بِالطَّعَّانِ وَلَا اللَّعَّانِ وَلَا الفَاحِشِ وَلَا البَذِيءِ».`, { mentions:[senderId] });
             return;
         }
 
