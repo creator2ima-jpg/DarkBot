@@ -42,6 +42,29 @@ function saveMerchants() {
 }
 
 // =========================================
+// 🧹 نظام المكنسة (تنظيف الكاش العميق لحماية الفوليوم) - إضافة جديدة
+// =========================================
+function clearChromiumCache() {
+    try {
+        const basePath = path.join(dataPath, '.wwebjs_auth', 'session', 'Default');
+        const cachePaths =[
+            path.join(basePath, 'Cache'),
+            path.join(basePath, 'Code Cache'),
+            path.join(basePath, 'Service Worker', 'CacheStorage')
+        ];
+        
+        cachePaths.forEach(cachePath => {
+            if (fs.existsSync(cachePath)) {
+                fs.rmSync(cachePath, { recursive: true, force: true });
+            }
+        });
+    } catch (err) {}
+}
+
+// تنظيف فوري عند التشغيل
+clearChromiumCache();
+
+// =========================================
 // 🚫 2. نظام Anti-Spam (تحديث: تنظيف تلقائي للرامات)
 // =========================================
 const spamTracker = {};
@@ -73,6 +96,10 @@ setInterval(() => {
     for (const key in spamTracker) {
         delete spamTracker[key];
     }
+
+    // تنظيف كاش المتصفح يومياً (إضافة جديدة لحماية الفوليوم)
+    clearChromiumCache();
+
 }, 24 * 60 * 60 * 1000);
 
 // =========================================
@@ -108,7 +135,11 @@ const client = new Client({
             '--no-zygote',
             '--single-process', 
             '--disable-gpu',
-            '--js-flags="--max-old-space-size=150"'
+            '--js-flags="--max-old-space-size=150"',
+            // الإضافات الـ 3 الجديدة لمنع تخزين الكاش تماماً
+            '--disk-cache-size=1',                
+            '--disable-application-cache',        
+            '--disable-offline-load-stale-cache'  
         ]
     }
 });
@@ -276,7 +307,7 @@ client.on('group_admin_changed', async (notification) => {
             const chat = await client.getChatById(notification.chatId);
             for (const adminId of notification.recipientIds) {
                 const adminNumber = adminId.split('@')[0];
-                await chat.sendMessage(`${botPrefix}🔄 [تحديث النظام]\nتم التعرف على المشرف الجديد (@${adminNumber}) وإعطائه الحصانة للروابط والشتائم ✅.`, { mentions:[adminId] });
+                await chat.sendMessage(`${botPrefix}🔄[تحديث النظام]\nتم التعرف على المشرف الجديد (@${adminNumber}) وإعطائه الحصانة للروابط والشتائم ✅.`, { mentions:[adminId] });
             }
         }
     } catch (err) {}
