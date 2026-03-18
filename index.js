@@ -148,7 +148,6 @@ const cleanedBadWords = badWords.map(word => cleanText(word));
 function containsBadWordSmart(messageText) {
     const cleanedMessage = cleanText(messageText);
     const messageWords = cleanedMessage.split(/\s+/);
-    
     return messageWords.some(userWord => {
         return cleanedBadWords.some(badWord => {
             let strippedWord = userWord.replace(/^(ال|و|ف|ب|ك|ل)+/, '');
@@ -271,7 +270,7 @@ client.on('group_admin_changed', async (notification) => {
             const chat = await client.getChatById(notification.chatId);
             for (const adminId of notification.recipientIds) {
                 const adminNumber = adminId.split('@')[0];
-                await chat.sendMessage(`${botPrefix}🔄 [تحديث النظام]\nتم التعرف على المشرف الجديد (@${adminNumber}) وإعطائه الحصانة الكاملة ✅.`, { mentions: [adminId] });
+                await chat.sendMessage(`${botPrefix}🔄 [تحديث النظام]\nتم التعرف على المشرف الجديد (@${adminNumber}) وإعطائه الحصانة الكاملة ✅.`, { mentions:[adminId] });
             }
         }
     } catch (err) {}
@@ -297,15 +296,14 @@ client.on('message_create', async msg => {
         const text = msg.body.trim();
         const isBotOwner = msg.fromMe || MY_ADMIN_NUMBERS.includes(senderNumber);
 
-        // 🛑 الحماية 1: تجاهل رسائل الخاص للأعضاء العاديين (السماح للمالك فقط)
+        // 🛑 الحماية 1: تجاهل رسائل الخاص للأعضاء العاديين
         if (!chat.isGroup && !isBotOwner) return;
 
         // =========================================
-        // 🌐 أوامر المالك العامة (تعمل في الخاص وفي الجروبات)
+        // 🌐 أوامر المالك العامة (في الخاص والجروبات)
         // =========================================
         if (isBotOwner) {
             
-            // 1. أمر كل الجروبات
             if (text === '!كل الجروبات' || text === '!الجروبات') {
                 await chat.sendMessage(`${botPrefix}⏳ جاري جمع البيانات من الذاكرة...`);
                 const now = Date.now();
@@ -335,7 +333,6 @@ client.on('message_create', async msg => {
                 return;
             }
 
-            // 2. نظام الإذاعة الجماعية (المطور لدعم الإذاعة العامة والخاصة)
             if (text.startsWith('!اذاعة')) {
                 const isGeneralBroadcast = text.startsWith('!اذاعة عامة');
                 const broadcastText = text.replace(isGeneralBroadcast ? '!اذاعة عامة' : '!اذاعة', '').trim();
@@ -352,10 +349,8 @@ client.on('message_create', async msg => {
                 try { allChats = await client.getChats(); } catch(e) {}
 
                 if (isGeneralBroadcast) {
-                    // جلب كل الجروبات التي يتواجد فيها البوت حالياً
                     targetGroups = allChats.filter(c => c.isGroup).map(c => c.id._serialized);
                 } else {
-                    // جلب الجروبات المشتركة (المفعلة) فقط
                     const now = Date.now();
                     for (const gId in groupSettings) {
                         if (groupSettings[gId].expireAt && groupSettings[gId].expireAt > now) {
@@ -364,8 +359,7 @@ client.on('message_create', async msg => {
                     }
                 }
 
-                // التأكد من عدم وجود تكرار
-                targetGroups = [...new Set(targetGroups)];
+                targetGroups =[...new Set(targetGroups)];
 
                 if (targetGroups.length === 0) {
                     await chat.sendMessage(`${botPrefix}❌ لم يتم العثور على أي جروبات متطابقة للإرسال إليها.`);
@@ -373,15 +367,12 @@ client.on('message_create', async msg => {
                 }
 
                 let successCount = 0, failCount = 0;
-                let successNames = [], failNames =[];
+                let successNames =[], failNames =[];
                 let media = null;
-                
-                // تحميل الميديا مرة واحدة فقط لعدم إهلاك الذاكرة
                 if (msg.hasMedia) { try { media = await msg.downloadMedia(); } catch (e) {} }
 
                 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-                // حلقة الإرسال
                 for (const gId of targetGroups) {
                     let groupName = "جروب غير معروف";
                     const cachedChat = allChats.find(c => c.id._serialized === gId);
@@ -398,8 +389,6 @@ client.on('message_create', async msg => {
                         }
                         successCount++;
                         successNames.push(`✅ ${groupName}`);
-                        
-                        // تخفي بشري: توقف بين 3 و 7 ثوانٍ
                         await sleep(Math.floor(Math.random() * (7000 - 3000 + 1)) + 3000);
                     } catch (err) { 
                         failCount++; 
@@ -407,8 +396,7 @@ client.on('message_create', async msg => {
                     }
                 }
 
-                let broadcastReport = `${botPrefix}📢 *تم الانتهاء من الإذاعة!*\n\n`;
-                broadcastReport += `📊 *الإحصائيات:*\nالهدف: ${isGeneralBroadcast ? 'كل الجروبات' : 'الجروبات المفعلة'}\nنجح: ${successCount} | فشل: ${failCount}\n\n`;
+                let broadcastReport = `${botPrefix}📢 *تم الانتهاء من الإذاعة!*\n\n📊 *الإحصائيات:*\nالهدف: ${isGeneralBroadcast ? 'كل الجروبات' : 'الجروبات المفعلة'}\nنجح: ${successCount} | فشل: ${failCount}\n\n`;
                 if (successNames.length > 0) broadcastReport += `🟢 *تم الاستلام في:*\n${successNames.join('\n')}\n\n`;
                 if (failNames.length > 0) broadcastReport += `🔴 *فشل في (قد يكون مطروداً):*\n${failNames.join('\n')}`;
 
@@ -416,7 +404,6 @@ client.on('message_create', async msg => {
                 return;
             }
 
-            // 🛑 الحماية 2: منع أوامر التفعيل من الخاص
             if (!chat.isGroup && (text.startsWith('!تفعيل') || text.startsWith('!ايقاف') || text === '!فحص' || text === '!صلاحياتي' || text.startsWith('!نظام'))) {
                 await chat.sendMessage(`${botPrefix}⚠️ عذراً، أوامر التفعيل والإيقاف يجب أن تُكتب داخل الجروب نفسه.\n\n*الأوامر المسموحة في الخاص:* \n- !كل الجروبات\n- !اذاعة [رسالتك]\n- !اذاعة عامة [رسالتك]`);
                 return;
@@ -460,8 +447,12 @@ client.on('message_create', async msg => {
             if (text === '!ايقاف التجار') { groupSettings[chatId].merchant = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف نظام توثيق التجار.`); return; }
             if (text === '!تفعيل الملصقات') { groupSettings[chatId].stickers = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تشغيل صانع الملصقات.`); return; }
             if (text === '!ايقاف الملصقات') { groupSettings[chatId].stickers = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف صانع الملصقات.`); return; }
-            if (text === '!تفعيل المنشن') { groupSettings[chatId].antiMention = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تشغيل نظام منع منشن (@الكل).`); return; }
-            if (text === '!ايقاف المنشن') { groupSettings[chatId].antiMention = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف نظام منع منشن (@الكل).`); return; }
+            
+            // ✅ أوامر المنشن المحدثة (مخصصة ومقسمة)
+            if (text === '!تفعيل المنشن للاعضاء') { groupSettings[chatId].antiMention = 'members'; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم منع منشن (@الكل) على الأعضاء العاديين فقط.`); return; }
+            if (text === '!تفعيل المنشن للكل') { groupSettings[chatId].antiMention = 'all'; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم منع منشن (@الكل) على الجميع (حتى المشرفين).`); return; }
+            if (text === '!ايقاف المنشن') { groupSettings[chatId].antiMention = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف منع منشن (@الكل).`); return; }
+
             if (text === '!نظام الروابط طرد') { groupSettings[chatId].linkAction = 'kick'; saveSettings(); await chat.sendMessage(`${botPrefix}⚙️ تم ضبط نظام الروابط: (طرد بعد 3 إنذارات).`); return; }
             if (text === '!نظام الروابط حذف') { groupSettings[chatId].linkAction = 'deleteOnly'; saveSettings(); await chat.sendMessage(`${botPrefix}⚙️ تم ضبط نظام الروابط: (حذف فقط بدون طرد).`); return; }
 
@@ -470,7 +461,8 @@ client.on('message_create', async msg => {
                 groupSettings[chatId].expireAt = newExpireAt;
                 groupSettings[chatId].links = true; groupSettings[chatId].swear = true;
                 groupSettings[chatId].merchant = true; groupSettings[chatId].stickers = true;
-                groupSettings[chatId].antiMention = true; groupSettings[chatId].expiredNotified = false;
+                groupSettings[chatId].antiMention = 'members'; // الافتراضي يمنع الأعضاء فقط
+                groupSettings[chatId].expiredNotified = false;
                 saveSettings();
                 await chat.sendMessage(`${botPrefix}✅🔥 تم تفعيل **جميع الميزات** كباقة مدى الحياة!`); return;
             }
@@ -489,7 +481,7 @@ client.on('message_create', async msg => {
                 groupSettings[chatId].expireAt = newExpireAt; groupSettings[chatId].expiredNotified = false;
                 groupSettings[chatId].links = true; groupSettings[chatId].swear = true;
                 groupSettings[chatId].merchant = true; groupSettings[chatId].stickers = true;
-                groupSettings[chatId].antiMention = true; saveSettings();
+                groupSettings[chatId].antiMention = 'members'; saveSettings();
                 await chat.sendMessage(`✅ *تم تفعيل البوت!*\n📦 *الباقة:* ${packageName}\n🛑 *ينتهي:* ${formatDate(newExpireAt)}`); return;
             }
 
@@ -513,7 +505,12 @@ client.on('message_create', async msg => {
                 const f_swear = groupSettings[chatId].swear ? '✅' : '❌';
                 const f_merch = groupSettings[chatId].merchant ? '✅' : '❌';
                 const f_stick = groupSettings[chatId].stickers ? '✅' : '❌';
-                const f_mention = groupSettings[chatId].antiMention ? '✅' : '❌';
+                
+                // تحديد نوع المنع في التقرير
+                let f_mention = '❌ (مسموح)';
+                if (groupSettings[chatId].antiMention === 'all') f_mention = '✅ (ممنوع على الكل)';
+                else if (groupSettings[chatId].antiMention === 'members' || groupSettings[chatId].antiMention === true) f_mention = '✅ (ممنوع للأعضاء)';
+                
                 await chat.sendMessage(`${botPrefix}📊 تقرير شامل للجروب:\n\n*الاشتراك:* ${subStatus}\n*نظام الروابط:* ${linkSys}\n\n*الميزات النشطة:*\nالروابط: ${f_links} | الشتائم: ${f_swear}\nالتجار: ${f_merch} | الملصقات: ${f_stick}\nمنع المنشن: ${f_mention}`); return;
             }
         }
@@ -571,26 +568,47 @@ client.on('message_create', async msg => {
             }
         }
 
-        // =========================================
-        // ⚖️ الحصانة الدبلوماسية
-        // =========================================
-        if (msg.fromMe || isSenderAdmin) return; 
+        // تحديد ما إذا كان المرسل معفياً من القوانين (أدمن أو مالك)
+        const isImmune = isSenderAdmin || isBotOwner;
 
         // =========================================
-        // ⚔️ العقوبات (تُطبق على الأعضاء العاديين فقط)
+        // 🚨 1. نظام منع منشن @الكل (يعمل قبل درع الحصانة للتحكم في المشرفين)
         // =========================================
-        
-        if (isSpamming(senderId)) { if (botIsAdmin) { try { await msg.delete(true); } catch (e) {} } return; }
-
-        // تعديل منع المنشن ليحذف @الكل فقط
         if (settings.antiMention) {
             const hasAllTag = text.includes('@الكل') || text.includes('@all') || text.includes('@everyone');
             if (hasAllTag) {
-                if (botIsAdmin) { try { await msg.delete(true); } catch (error) {} }
-                await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع استخدام منشن (@الكل) لإزعاج الأعضاء في هذا الجروب.`, { mentions:[senderId] });
-                return;
+                let shouldStrike = false;
+                let targetString = '';
+
+                // إذا كان المنع للكل (حتى المشرفين يضربهم البوت)
+                if (settings.antiMention === 'all') {
+                    shouldStrike = true;
+                    targetString = 'نهائياً لأي شخص';
+                } 
+                // إذا كان المنع للأعضاء العاديين فقط (وهذا الشخص ليس أدمن)
+                else if ((settings.antiMention === 'members' || settings.antiMention === true) && !isImmune) {
+                    shouldStrike = true;
+                    targetString = 'للأعضاء';
+                }
+
+                if (shouldStrike) {
+                    if (botIsAdmin) { try { await msg.delete(true); } catch (error) {} }
+                    await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع استخدام منشن (@الكل) ${targetString} في هذا الجروب.`, { mentions: [senderId] });
+                    return; // توقف هنا ولا تكمل
+                }
             }
         }
+
+        // =========================================
+        // ⚖️ الحصانة الدبلوماسية (لباقي العقوبات كالروابط والشتائم)
+        // =========================================
+        if (isImmune) return; 
+
+        // =========================================
+        // ⚔️ باقي العقوبات (تُطبق على الأعضاء العاديين فقط)
+        // =========================================
+        
+        if (isSpamming(senderId)) { if (botIsAdmin) { try { await msg.delete(true); } catch (e) {} } return; }
 
         if (settings.swear && containsBadWordSmart(msg.body)) {
             if (botIsAdmin) { try { await msg.delete(true); } catch (error) {} }
