@@ -134,9 +134,7 @@ client.on('disconnected', async () => {
 // ⚙️ 5. إعدادات القوانين والكلمات المسيئة 
 // =========================================
 const botPrefix = "بوت دارك فاير | Dark Fire Bot \n\n";
-
-// 🛑 تم إزالة علامة @ من القوانين لمنع تأثير المرآة
-const rulesText = `لائحة القوانين:\n1. ممنوع إرسال لينكات 🟥\n2. شتائم = كيك (طرد) 🟥\n3. ممنوع المنشن الجماعي للكل 🟥\n4. صلِّ على النبي في قلبك كده، واذكر الله.`;
+const rulesText = `لائحة القوانين:\n1. ممنوع إرسال لينكات 🟥\n2. شتائم = كيك (طرد) 🟥\n3. ممنوع منشن للكل 🟥\n4. صلِّ على النبي في قلبك كده، واذكر الله.`;
 
 const badWords =['شرموط', 'متناك' ,'كسمين', 'متناكه', 'منيوك', 'عرص', 'خول', 'علق', 'زاني', 'زانية', 'سكس', 'كسمك', 'كشمك', 'كس','احبه','منيوكه'];
 
@@ -192,7 +190,7 @@ async function restoreMerchantTimers() {
                             await chat.removeParticipants([userId]);
                             await chat.sendMessage(`${botPrefix}🚫 تم طرد (@${userNumber}) لتجاوزه المهلة بدون توثيق.`, { mentions: [userId] });
                         } else {
-                            await chat.sendMessage(`${botPrefix}🚫 العضو (@${userNumber}) لم يوثق نفسه.\n(يرجى طرده، البوت منزوع الصلاحيات!)`, { mentions:[userId] });
+                            await chat.sendMessage(`${botPrefix}🚫 العضو (@${userNumber}) لم يوثق نفسه.\n(يرجى طرده، البوت منزوع الصلاحيات!)`, { mentions: [userId] });
                         }
                     } catch (err) {}
                     delete pendingMerchants[userKey]; delete pendingMerchantsData[userKey]; saveMerchants();
@@ -273,7 +271,7 @@ client.on('group_admin_changed', async (notification) => {
             const chat = await client.getChatById(notification.chatId);
             for (const adminId of notification.recipientIds) {
                 const adminNumber = adminId.split('@')[0];
-                await chat.sendMessage(`${botPrefix}🔄 [تحديث النظام]\nتم التعرف على المشرف الجديد (@${adminNumber}) وإعطائه الحصانة الكاملة ✅.`, { mentions:[adminId] });
+                await chat.sendMessage(`${botPrefix}🔄 [تحديث النظام]\nتم التعرف على المشرف الجديد (@${adminNumber}) وإعطائه الحصانة للروابط والشتائم ✅.`, { mentions:[adminId] });
             }
         }
     } catch (err) {}
@@ -408,7 +406,7 @@ client.on('message_create', async msg => {
             }
 
             if (!chat.isGroup && (text.startsWith('!تفعيل') || text.startsWith('!ايقاف') || text === '!فحص' || text === '!صلاحياتي' || text.startsWith('!نظام'))) {
-                await chat.sendMessage(`${botPrefix}⚠️ عذراً، أوامر التفعيل والإيقاف يجب أن تُكتب داخل الجروب نفسه.\n\n*الأوامر المسموحة في الخاص:* \n- !كل الجروبات\n- !اذاعة [رسالتك]\n- !اذاعة عامة[رسالتك]`);
+                await chat.sendMessage(`${botPrefix}⚠️ عذراً، أوامر التفعيل والإيقاف يجب أن تُكتب داخل الجروب نفسه.\n\n*الأوامر المسموحة في الخاص:* \n- !كل الجروبات\n- !اذاعة [رسالتك]\n- !اذاعة عامة [رسالتك]`);
                 return;
             }
         }
@@ -451,7 +449,6 @@ client.on('message_create', async msg => {
             if (text === '!تفعيل الملصقات') { groupSettings[chatId].stickers = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تشغيل صانع الملصقات.`); return; }
             if (text === '!ايقاف الملصقات') { groupSettings[chatId].stickers = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف صانع الملصقات.`); return; }
             
-            // 🛑 إزالة علامة @ من كلمات البوت لمنع تأثير المرآة
             if (text === '!تفعيل المنشن للاعضاء') { groupSettings[chatId].antiMention = 'members'; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم منع المنشن الجماعي على الأعضاء العاديين فقط.`); return; }
             if (text === '!تفعيل المنشن للكل') { groupSettings[chatId].antiMention = 'all'; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم منع المنشن الجماعي على الجميع (حتى المشرفين).`); return; }
             if (text === '!ايقاف المنشن') { groupSettings[chatId].antiMention = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف منع المنشن الجماعي.`); return; }
@@ -570,9 +567,6 @@ client.on('message_create', async msg => {
             }
         }
 
-        // تحديد ما إذا كان المرسل معفياً من القوانين
-        const isImmune = isSenderAdmin || isBotOwner;
-
         // =========================================
         // 🚨 1. نظام منع منشن @الكل (يعمل قبل درع الحصانة للتحكم في المشرفين)
         // =========================================
@@ -582,32 +576,34 @@ client.on('message_create', async msg => {
                 let shouldStrike = false;
                 let targetString = '';
 
-                // إذا كان المنع للكل (حتى المشرفين)
+                // إذا كان المنع للكل (حتى المشرفين والمالك يضربهم البوت)
                 if (settings.antiMention === 'all') {
                     shouldStrike = true;
                     targetString = 'نهائياً لأي شخص';
                 } 
-                // إذا كان المنع للأعضاء العاديين فقط
-                else if ((settings.antiMention === 'members' || settings.antiMention === true) && !isImmune) {
+                // إذا كان المنع للأعضاء العاديين فقط (وهذا الشخص ليس أدمن)
+                else if ((settings.antiMention === 'members' || settings.antiMention === true) && !isSenderAdmin) {
                     shouldStrike = true;
                     targetString = 'للأعضاء';
                 }
 
                 if (shouldStrike) {
                     if (botIsAdmin) { try { await msg.delete(true); } catch (error) {} }
-                    await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع استخدام المنشن الجماعي ${targetString} في هذا الجروب.`, { mentions: [senderId] });
-                    return; 
+                    await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع استخدام منشن (@الكل) ${targetString} في هذا الجروب.`, { mentions: [senderId] });
+                    return; // توقف هنا ولا تكمل
                 }
             }
         }
 
         // =========================================
-        // ⚖️ الحصانة الدبلوماسية (لباقي العقوبات)
+        // ⚖️ الحصانة الدبلوماسية (لباقي العقوبات كالروابط والشتائم)
         // =========================================
+        // التعديل المطلوب: تم إزالة isBotOwner. الحصانة تعطى فقط لمن يملك رتبة "مشرف" فعلياً في الجروب
+        const isImmune = isSenderAdmin; 
         if (isImmune) return; 
 
         // =========================================
-        // ⚔️ باقي العقوبات (تُطبق على الأعضاء العاديين فقط)
+        // ⚔️ العقوبات (تُطبق على الأعضاء العاديين وأي شخص غير مشرف)
         // =========================================
         
         if (isSpamming(senderId)) { if (botIsAdmin) { try { await msg.delete(true); } catch (e) {} } return; }
@@ -640,7 +636,9 @@ client.on('message_create', async msg => {
             }
         }
 
-    } catch (err) {}
+    } catch (err) {
+        console.error('❌ خطأ في إرسال أو معالجة الرسالة:', err.message);
+    }
 });
 
 client.initialize();
