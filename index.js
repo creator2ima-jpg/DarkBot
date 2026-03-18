@@ -41,37 +41,8 @@ function saveMerchants() {
     fs.writeFileSync(merchantsFile, JSON.stringify(toSave, null, 2));
 }
 
-setInterval(() => {
-    let changed = false;
-    for (const key in userWarnings) {
-        if (userWarnings[key] === 0) {
-            delete userWarnings[key];
-            changed = true;
-        }
-    }
-    if (changed) saveWarnings();
-    if (global.gc) { global.gc(); }
-}, 24 * 60 * 60 * 1000);
-
 // =========================================
-// 👑 2. أرقام المالكين (المدير العام)
-// =========================================
-const MY_ADMIN_NUMBERS =[
-    "201092996413",
-    "201091885491",
-    "27041768431630"
-];
-
-function formatDate(timestamp) {
-    const date = new Date(timestamp);
-    return date.toLocaleDateString('ar-EG', {
-        year: 'numeric', month: 'long', day: 'numeric',
-        hour: '2-digit', minute: '2-digit'
-    });
-}
-
-// =========================================
-// 🚫 3. نظام Anti-Spam
+// 🚫 2. نظام Anti-Spam (تحديث: تنظيف تلقائي للرامات)
 // =========================================
 const spamTracker = {};
 const SPAM_LIMIT = 5;       
@@ -85,6 +56,40 @@ function isSpamming(senderId) {
     }
     spamTracker[senderId].count++;
     return spamTracker[senderId].count > SPAM_LIMIT;
+}
+
+// ♻️ تنظيف الإنذارات وذاكرة الـ Spam كل 24 ساعة لحماية الرامات
+setInterval(() => {
+    let changed = false;
+    for (const key in userWarnings) {
+        if (userWarnings[key] === 0) {
+            delete userWarnings[key];
+            changed = true;
+        }
+    }
+    if (changed) saveWarnings();
+    
+    // تفريغ ذاكرة الأرقام المتراكمة لتجنب انهيار السيرفر (Memory Leak)
+    for (const key in spamTracker) {
+        delete spamTracker[key];
+    }
+}, 24 * 60 * 60 * 1000);
+
+// =========================================
+// 👑 3. أرقام المالكين (المدير العام)
+// =========================================
+const MY_ADMIN_NUMBERS =[
+    "201092996413",
+    "201091885491",
+    "27041768431630"
+];
+
+function formatDate(timestamp) {
+    const date = new Date(timestamp);
+    return date.toLocaleDateString('ar-EG', {
+        year: 'numeric', month: 'long', day: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+    });
 }
 
 // =========================================
@@ -136,7 +141,7 @@ client.on('disconnected', async () => {
 const botPrefix = "بوت دارك فاير | Dark Fire Bot \n\n";
 const rulesText = `لائحة القوانين:\n1. ممنوع إرسال لينكات 🟥\n2. شتائم = كيك (طرد) 🟥\n3. ممنوع منشن للكل 🟥\n4. صلِّ على النبي في قلبك كده، واذكر الله.`;
 
-const badWords =['شرموط', 'متناك', 'غبي', 'حمار', 'كلب', 'عرص', 'خول', 'علق', 'زاني', 'زانية', 'سكس', 'كسمك', 'كشمك', 'كس'];
+const badWords =['شرموط', 'متناك', 'هنيكك', 'خدك عليه', 'معرص', 'عرص', 'خول', 'علق', 'زاني', 'زانية', 'سكس', 'كسمك', 'كشمك', 'كس','كسم امك','يكسمك','يمتناك','العرص','يمعرص','قحبة','متناكين'];
 
 function cleanText(text) {
     let t = text.toLowerCase().replace(/[\u0617-\u061A\u064B-\u0652]/g, "");
@@ -230,7 +235,7 @@ client.on('group_join', async (notification) => {
             const welcomeMsg =
                 `${botPrefix}أهلاً بك (@${userNumber}) في جروب التجار! 👋\n\n` +
                 `أمامك (30 دقيقة) لإثبات أنك تاجر ولست زبوناً.\n` +
-                `قم بإرسال رسالة تعمل فيها (منشن @) لـ 5 تجار كضمان لك.\n` +
+                `قم بإرسال رسالة تعمل فيها (منشن @) لـ 5 تجار مختلفين كضمان لك.\n` +
                 `⏳ إذا لم تفعل ذلك، سيُطردك البوت تلقائياً.\n\n${rulesText}`;
             await chat.sendMessage(welcomeMsg, { mentions: [joinedUserId] });
 
@@ -278,7 +283,7 @@ client.on('group_admin_changed', async (notification) => {
 });
 
 // =========================================
-// 📩 8. نظام استقبال الرسائل والأوامر
+// 📩 7. نظام استقبال الرسائل والأوامر
 // =========================================
 client.on('message_create', async msg => {
     try {
@@ -297,7 +302,7 @@ client.on('message_create', async msg => {
         const text = msg.body.trim();
         const isBotOwner = msg.fromMe || MY_ADMIN_NUMBERS.includes(senderNumber);
 
-        // 🛑 الحماية 1: تجاهل رسائل الخاص للأعضاء العاديين
+        // 🛑 الحماية: تجاهل رسائل الخاص للأعضاء العاديين
         if (!chat.isGroup && !isBotOwner) return;
 
         // =========================================
@@ -558,17 +563,22 @@ client.on('message_create', async msg => {
             const userKey = `${chatId}_SPLIT_${senderId}`;
             if (pendingMerchants[userKey]) {
                 const mentions = await msg.getMentions();
-                if (mentions && mentions.length >= 5) {
-                    clearTimeout(pendingMerchants[userKey].warningTimer);
-                    clearTimeout(pendingMerchants[userKey].kickTimer);
-                    delete pendingMerchants[userKey]; delete pendingMerchantsData[userKey]; saveMerchants();
-                    await chat.sendMessage(`${botPrefix}✅ تم توثيقك كتاجر معتمد.`);
+                if (mentions && mentions.length > 0) {
+                    // سد الثغرة: تصفية المنشنات للأشخاص المختلفين فقط
+                    const uniqueMentions =[...new Set(mentions.map(m => m.id._serialized))];
+                    
+                    if (uniqueMentions.length >= 5) {
+                        clearTimeout(pendingMerchants[userKey].warningTimer);
+                        clearTimeout(pendingMerchants[userKey].kickTimer);
+                        delete pendingMerchants[userKey]; delete pendingMerchantsData[userKey]; saveMerchants();
+                        await chat.sendMessage(`${botPrefix}✅ تم توثيقك كتاجر معتمد.`);
+                    }
                 }
             }
         }
 
         // =========================================
-        // 🚨 1. نظام منع منشن @الكل (يعمل قبل درع الحصانة للتحكم في المشرفين)
+        // 🚨 1. نظام منع منشن @الكل
         // =========================================
         if (settings.antiMention) {
             const hasAllTag = text.includes('@الكل') || text.includes('@all') || text.includes('@everyone');
@@ -576,12 +586,10 @@ client.on('message_create', async msg => {
                 let shouldStrike = false;
                 let targetString = '';
 
-                // إذا كان المنع للكل (حتى المشرفين والمالك يضربهم البوت)
                 if (settings.antiMention === 'all') {
                     shouldStrike = true;
                     targetString = 'نهائياً لأي شخص';
                 } 
-                // إذا كان المنع للأعضاء العاديين فقط (وهذا الشخص ليس أدمن)
                 else if ((settings.antiMention === 'members' || settings.antiMention === true) && !isSenderAdmin) {
                     shouldStrike = true;
                     targetString = 'للأعضاء';
@@ -589,21 +597,21 @@ client.on('message_create', async msg => {
 
                 if (shouldStrike) {
                     if (botIsAdmin) { try { await msg.delete(true); } catch (error) {} }
-                    await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع استخدام منشن (الكل) ${targetString} في هذا الجروب.`, { mentions: [senderId] });
-                    return; // توقف هنا ولا تكمل
+                    await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع استخدام منشن (الكل) ${targetString} في هذا الجروب.`, { mentions:[senderId] });
+                    return; 
                 }
             }
         }
 
         // =========================================
-        // ⚖️ الحصانة الدبلوماسية (لباقي العقوبات كالروابط والشتائم)
+        // ⚖️ الحصانة الدبلوماسية
         // =========================================
-        // التعديل المطلوب: تم إزالة isBotOwner. الحصانة تعطى فقط لمن يملك رتبة "مشرف" فعلياً في الجروب
+        // (كما طلب المالك: الحصانة للمشرفين فقط وليس لأرقام المالك إذا لم يكونوا مشرفين)
         const isImmune = isSenderAdmin; 
         if (isImmune) return; 
 
         // =========================================
-        // ⚔️ العقوبات (تُطبق على الأعضاء العاديين وأي شخص غير مشرف)
+        // ⚔️ العقوبات
         // =========================================
         
         if (isSpamming(senderId)) { if (botIsAdmin) { try { await msg.delete(true); } catch (e) {} } return; }
