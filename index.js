@@ -74,7 +74,6 @@ function clearChromiumCache() {
     } catch (err) {}
 }
 
-// تنظيف فوري عند التشغيل
 clearChromiumCache();
 
 // =========================================
@@ -94,7 +93,6 @@ function isSpamming(senderId) {
     return spamTracker[senderId].count > SPAM_LIMIT;
 }
 
-// ♻️ تنظيف الإنذارات وذاكرة الـ Spam كل 24 ساعة لحماية الرامات
 setInterval(() => {
     let changed = false;
     for (const key in userWarnings) {
@@ -104,15 +102,8 @@ setInterval(() => {
         }
     }
     if (changed) saveWarnings();
-    
-    // تفريغ ذاكرة الأرقام المتراكمة لتجنب انهيار السيرفر (Memory Leak)
-    for (const key in spamTracker) {
-        delete spamTracker[key];
-    }
-
-    // تنظيف كاش المتصفح يومياً
+    for (const key in spamTracker) { delete spamTracker[key]; }
     clearChromiumCache();
-
 }, 24 * 60 * 60 * 1000);
 
 // =========================================
@@ -133,7 +124,7 @@ function formatDate(timestamp) {
 }
 
 // =========================================
-// 🚀 4. إعدادات البوت والاتصال (تم إزالة سبب الانهيار)
+// 🚀 4. إعدادات البوت والاتصال 
 // =========================================
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: dataPath }),
@@ -142,12 +133,12 @@ const client = new Client({
         args:[
             '--no-sandbox', 
             '--disable-setuid-sandbox', 
-            '--disable-dev-shm-usage', // مهم جداً لمنع انهيار المتصفح في Railway
+            '--disable-dev-shm-usage',
             '--disable-accelerated-2d-canvas', 
             '--no-first-run', 
             '--no-zygote',
             '--disable-gpu',
-            '--js-flags="--max-old-space-size=250"', // مساحة معقولة للرام
+            '--js-flags="--max-old-space-size=250"', 
             '--disk-cache-size=1',                
             '--disable-application-cache',        
             '--disable-offline-load-stale-cache'  
@@ -195,7 +186,6 @@ const cleanedBadWords = badWords.map(word => cleanText(word));
 function containsBadWordSmart(messageText) {
     const cleanedMessage = cleanText(messageText);
     const messageWords = cleanedMessage.split(/\s+/);
-    
     return messageWords.some(userWord => {
         return cleanedBadWords.some(badWord => {
             let strippedWord = userWord.replace(/^(ال|و|ف|ب|ك|ل)+/, '');
@@ -328,6 +318,9 @@ client.on('group_admin_changed', async (notification) => {
 // 📩 7. نظام استقبال الرسائل والأوامر
 // =========================================
 client.on('message_create', async msg => {
+    // 🔍 أسطر الفحص العميق لمعرفة سبب التجاهل
+    console.log(`[DEBUG] 📩 رسالة واردة: "${msg.body}"`);
+    
     try {
         const chat = await msg.getChat();
         
@@ -341,6 +334,10 @@ client.on('message_create', async msg => {
         } catch(e) {}
 
         const senderNumber = senderId.split('@')[0];
+        
+        // 🔍 فحص رقم المالك
+        console.log(`[DEBUG] 👤 رقم المرسل: ${senderNumber} | هل هو جروب؟ ${chat.isGroup}`);
+        
         const text = msg.body.trim();
         const isBotOwner = msg.fromMe || MY_ADMIN_NUMBERS.includes(senderNumber);
 
@@ -606,9 +603,7 @@ client.on('message_create', async msg => {
             if (pendingMerchants[userKey]) {
                 const mentions = await msg.getMentions();
                 if (mentions && mentions.length > 0) {
-                    // سد الثغرة: تصفية المنشنات للأشخاص المختلفين فقط
                     const uniqueMentions =[...new Set(mentions.map(m => m.id._serialized))];
-                    
                     if (uniqueMentions.length >= 5) {
                         clearTimeout(pendingMerchants[userKey].warningTimer);
                         clearTimeout(pendingMerchants[userKey].kickTimer);
