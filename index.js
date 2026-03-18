@@ -55,7 +55,7 @@ function saveMerchants() {
 }
 
 // =========================================
-// 🧹 نظام المكنسة (تنظيف الكاش العميق لحماية الفوليوم) - إضافة جديدة
+// 🧹 نظام المكنسة (تنظيف الكاش العميق لحماية الفوليوم)
 // =========================================
 function clearChromiumCache() {
     try {
@@ -78,7 +78,7 @@ function clearChromiumCache() {
 clearChromiumCache();
 
 // =========================================
-// 🚫 2. نظام Anti-Spam (تحديث: تنظيف تلقائي للرامات)
+// 🚫 2. نظام Anti-Spam (تنظيف تلقائي للرامات)
 // =========================================
 const spamTracker = {};
 const SPAM_LIMIT = 5;       
@@ -110,7 +110,7 @@ setInterval(() => {
         delete spamTracker[key];
     }
 
-    // تنظيف كاش المتصفح يومياً (إضافة جديدة لحماية الفوليوم)
+    // تنظيف كاش المتصفح يومياً
     clearChromiumCache();
 
 }, 24 * 60 * 60 * 1000);
@@ -133,7 +133,7 @@ function formatDate(timestamp) {
 }
 
 // =========================================
-// 🚀 4. إعدادات البوت والاتصال
+// 🚀 4. إعدادات البوت والاتصال (تم إزالة سبب الانهيار)
 // =========================================
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: dataPath }),
@@ -142,14 +142,12 @@ const client = new Client({
         args:[
             '--no-sandbox', 
             '--disable-setuid-sandbox', 
-            '--disable-dev-shm-usage',
+            '--disable-dev-shm-usage', // مهم جداً لمنع انهيار المتصفح في Railway
             '--disable-accelerated-2d-canvas', 
             '--no-first-run', 
             '--no-zygote',
-            '--single-process', 
             '--disable-gpu',
-            '--js-flags="--max-old-space-size=150"',
-            // الإضافات الـ 3 الجديدة لمنع تخزين الكاش تماماً
+            '--js-flags="--max-old-space-size=250"', // مساحة معقولة للرام
             '--disk-cache-size=1',                
             '--disable-application-cache',        
             '--disable-offline-load-stale-cache'  
@@ -650,7 +648,6 @@ client.on('message_create', async msg => {
         // =========================================
         // ⚖️ الحصانة الدبلوماسية
         // =========================================
-        // (كما طلب المالك: الحصانة للمشرفين فقط وليس لأرقام المالك إذا لم يكونوا مشرفين)
         const isImmune = isSenderAdmin; 
         if (isImmune) return; 
 
