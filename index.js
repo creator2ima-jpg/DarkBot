@@ -134,7 +134,9 @@ client.on('disconnected', async () => {
 // ⚙️ 5. إعدادات القوانين والكلمات المسيئة 
 // =========================================
 const botPrefix = "بوت دارك فاير | Dark Fire Bot \n\n";
-const rulesText = `لائحة القوانين:\n1. ممنوع إرسال لينكات 🟥\n2. شتائم = كيك (طرد) 🟥\n3. ممنوع منشن للكل 🟥\n4. صلِّ على النبي في قلبك كده، واذكر الله.`;
+
+// 🛑 تم إزالة علامة @ من القوانين لمنع تأثير المرآة
+const rulesText = `لائحة القوانين:\n1. ممنوع إرسال لينكات 🟥\n2. شتائم = كيك (طرد) 🟥\n3. ممنوع المنشن الجماعي للكل 🟥\n4. صلِّ على النبي في قلبك كده، واذكر الله.`;
 
 const badWords =['شرموط', 'متناك', 'غبي', 'حمار', 'كلب', 'عرص', 'خول', 'علق', 'زاني', 'زانية', 'سكس', 'كسمك', 'كشمك', 'كس'];
 
@@ -148,6 +150,7 @@ const cleanedBadWords = badWords.map(word => cleanText(word));
 function containsBadWordSmart(messageText) {
     const cleanedMessage = cleanText(messageText);
     const messageWords = cleanedMessage.split(/\s+/);
+    
     return messageWords.some(userWord => {
         return cleanedBadWords.some(badWord => {
             let strippedWord = userWord.replace(/^(ال|و|ف|ب|ك|ل)+/, '');
@@ -189,7 +192,7 @@ async function restoreMerchantTimers() {
                             await chat.removeParticipants([userId]);
                             await chat.sendMessage(`${botPrefix}🚫 تم طرد (@${userNumber}) لتجاوزه المهلة بدون توثيق.`, { mentions: [userId] });
                         } else {
-                            await chat.sendMessage(`${botPrefix}🚫 العضو (@${userNumber}) لم يوثق نفسه.\n(يرجى طرده، البوت منزوع الصلاحيات!)`, { mentions: [userId] });
+                            await chat.sendMessage(`${botPrefix}🚫 العضو (@${userNumber}) لم يوثق نفسه.\n(يرجى طرده، البوت منزوع الصلاحيات!)`, { mentions:[userId] });
                         }
                     } catch (err) {}
                     delete pendingMerchants[userKey]; delete pendingMerchantsData[userKey]; saveMerchants();
@@ -405,7 +408,7 @@ client.on('message_create', async msg => {
             }
 
             if (!chat.isGroup && (text.startsWith('!تفعيل') || text.startsWith('!ايقاف') || text === '!فحص' || text === '!صلاحياتي' || text.startsWith('!نظام'))) {
-                await chat.sendMessage(`${botPrefix}⚠️ عذراً، أوامر التفعيل والإيقاف يجب أن تُكتب داخل الجروب نفسه.\n\n*الأوامر المسموحة في الخاص:* \n- !كل الجروبات\n- !اذاعة [رسالتك]\n- !اذاعة عامة [رسالتك]`);
+                await chat.sendMessage(`${botPrefix}⚠️ عذراً، أوامر التفعيل والإيقاف يجب أن تُكتب داخل الجروب نفسه.\n\n*الأوامر المسموحة في الخاص:* \n- !كل الجروبات\n- !اذاعة [رسالتك]\n- !اذاعة عامة[رسالتك]`);
                 return;
             }
         }
@@ -448,10 +451,10 @@ client.on('message_create', async msg => {
             if (text === '!تفعيل الملصقات') { groupSettings[chatId].stickers = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تشغيل صانع الملصقات.`); return; }
             if (text === '!ايقاف الملصقات') { groupSettings[chatId].stickers = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف صانع الملصقات.`); return; }
             
-            // ✅ أوامر المنشن المحدثة (مخصصة ومقسمة)
-            if (text === '!تفعيل المنشن للاعضاء') { groupSettings[chatId].antiMention = 'members'; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم منع منشن (@الكل) على الأعضاء العاديين فقط.`); return; }
-            if (text === '!تفعيل المنشن للكل') { groupSettings[chatId].antiMention = 'all'; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم منع منشن (@الكل) على الجميع (حتى المشرفين).`); return; }
-            if (text === '!ايقاف المنشن') { groupSettings[chatId].antiMention = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف منع منشن (@الكل).`); return; }
+            // 🛑 إزالة علامة @ من كلمات البوت لمنع تأثير المرآة
+            if (text === '!تفعيل المنشن للاعضاء') { groupSettings[chatId].antiMention = 'members'; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم منع المنشن الجماعي على الأعضاء العاديين فقط.`); return; }
+            if (text === '!تفعيل المنشن للكل') { groupSettings[chatId].antiMention = 'all'; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم منع المنشن الجماعي على الجميع (حتى المشرفين).`); return; }
+            if (text === '!ايقاف المنشن') { groupSettings[chatId].antiMention = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف منع المنشن الجماعي.`); return; }
 
             if (text === '!نظام الروابط طرد') { groupSettings[chatId].linkAction = 'kick'; saveSettings(); await chat.sendMessage(`${botPrefix}⚙️ تم ضبط نظام الروابط: (طرد بعد 3 إنذارات).`); return; }
             if (text === '!نظام الروابط حذف') { groupSettings[chatId].linkAction = 'deleteOnly'; saveSettings(); await chat.sendMessage(`${botPrefix}⚙️ تم ضبط نظام الروابط: (حذف فقط بدون طرد).`); return; }
@@ -461,7 +464,7 @@ client.on('message_create', async msg => {
                 groupSettings[chatId].expireAt = newExpireAt;
                 groupSettings[chatId].links = true; groupSettings[chatId].swear = true;
                 groupSettings[chatId].merchant = true; groupSettings[chatId].stickers = true;
-                groupSettings[chatId].antiMention = 'members'; // الافتراضي يمنع الأعضاء فقط
+                groupSettings[chatId].antiMention = 'members'; 
                 groupSettings[chatId].expiredNotified = false;
                 saveSettings();
                 await chat.sendMessage(`${botPrefix}✅🔥 تم تفعيل **جميع الميزات** كباقة مدى الحياة!`); return;
@@ -506,9 +509,8 @@ client.on('message_create', async msg => {
                 const f_merch = groupSettings[chatId].merchant ? '✅' : '❌';
                 const f_stick = groupSettings[chatId].stickers ? '✅' : '❌';
                 
-                // تحديد نوع المنع في التقرير
                 let f_mention = '❌ (مسموح)';
-                if (groupSettings[chatId].antiMention === 'all') f_mention = '✅ (ممنوع على الكل)';
+                if (groupSettings[chatId].antiMention === 'all') f_mention = '✅ (ممنوع للكل)';
                 else if (groupSettings[chatId].antiMention === 'members' || groupSettings[chatId].antiMention === true) f_mention = '✅ (ممنوع للأعضاء)';
                 
                 await chat.sendMessage(`${botPrefix}📊 تقرير شامل للجروب:\n\n*الاشتراك:* ${subStatus}\n*نظام الروابط:* ${linkSys}\n\n*الميزات النشطة:*\nالروابط: ${f_links} | الشتائم: ${f_swear}\nالتجار: ${f_merch} | الملصقات: ${f_stick}\nمنع المنشن: ${f_mention}`); return;
@@ -568,7 +570,7 @@ client.on('message_create', async msg => {
             }
         }
 
-        // تحديد ما إذا كان المرسل معفياً من القوانين (أدمن أو مالك)
+        // تحديد ما إذا كان المرسل معفياً من القوانين
         const isImmune = isSenderAdmin || isBotOwner;
 
         // =========================================
@@ -580,12 +582,12 @@ client.on('message_create', async msg => {
                 let shouldStrike = false;
                 let targetString = '';
 
-                // إذا كان المنع للكل (حتى المشرفين يضربهم البوت)
+                // إذا كان المنع للكل (حتى المشرفين)
                 if (settings.antiMention === 'all') {
                     shouldStrike = true;
                     targetString = 'نهائياً لأي شخص';
                 } 
-                // إذا كان المنع للأعضاء العاديين فقط (وهذا الشخص ليس أدمن)
+                // إذا كان المنع للأعضاء العاديين فقط
                 else if ((settings.antiMention === 'members' || settings.antiMention === true) && !isImmune) {
                     shouldStrike = true;
                     targetString = 'للأعضاء';
@@ -593,14 +595,14 @@ client.on('message_create', async msg => {
 
                 if (shouldStrike) {
                     if (botIsAdmin) { try { await msg.delete(true); } catch (error) {} }
-                    await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع استخدام منشن (@الكل) ${targetString} في هذا الجروب.`, { mentions: [senderId] });
-                    return; // توقف هنا ولا تكمل
+                    await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع استخدام المنشن الجماعي ${targetString} في هذا الجروب.`, { mentions: [senderId] });
+                    return; 
                 }
             }
         }
 
         // =========================================
-        // ⚖️ الحصانة الدبلوماسية (لباقي العقوبات كالروابط والشتائم)
+        // ⚖️ الحصانة الدبلوماسية (لباقي العقوبات)
         // =========================================
         if (isImmune) return; 
 
