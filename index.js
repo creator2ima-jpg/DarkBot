@@ -108,7 +108,7 @@ const client = new Client({
             '--no-zygote',
             '--single-process', 
             '--disable-gpu',
-            '--js-flags="--max-old-space-size=400"'
+            '--js-flags="--max-old-space-size=150"'
         ]
     }
 });
