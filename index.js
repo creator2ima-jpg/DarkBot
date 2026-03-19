@@ -109,6 +109,7 @@ setInterval(() => {
 // =========================================
 // 👑 3. أرقام المالكين
 // =========================================
+// يفضل كتابة الأرقام بدون + وبدون مسافات
 const MY_ADMIN_NUMBERS =[
     "201092996413",
     "201091885491",
@@ -142,7 +143,6 @@ const client = new Client({
             '--disk-cache-size=1',                
             '--disable-application-cache',        
             '--disable-offline-load-stale-cache',
-            // 👇 الأوامر الجديدة لمنع "سبات" المتصفح في الخلفية
             '--disable-background-timer-throttling',
             '--disable-backgrounding-occluded-windows',
             '--disable-renderer-backgrounding'
@@ -319,26 +319,33 @@ client.on('group_admin_changed', async (notification) => {
 });
 
 // =========================================
-// 📩 7. نظام استقبال الرسائل والأوامر
+// 📩 7. نظام استقبال الرسائل والأوامر (المُحدّث بالفلتر الخارق)
 // =========================================
 client.on('message_create', async msg => {
-    console.log(`[DEBUG] 📩 رسالة واردة: "${msg.body}"`);
-    
     try {
         const chat = await msg.getChat();
         
+        // 1. التقاط الآيدي الخام للمرسل
         let rawSenderId = msg.fromMe ? (msg.from || msg.to) : (msg.author || msg.from);
         if (msg.fromMe && client.info && client.info.wid) { rawSenderId = client.info.wid._serialized; }
+        
+        // 2. تجريد الرقم من أي علامات غريبة (:2, @c.us, +, مسافات)
         let senderId = rawSenderId.replace(/:\d+/, "");
+        let senderNumber = senderId.split('@')[0].replace(/\D/g, ""); // يستخرج الأرقام الصافية فقط
 
+        // محاولة دقيقة إضافية لجلب الرقم من جهة الاتصال
         try {
             const contact = await msg.getContact();
-            if (contact && contact.id && contact.id._serialized) { senderId = contact.id._serialized; }
+            if (contact && contact.number) { senderNumber = contact.number.replace(/\D/g, ""); }
         } catch(e) {}
 
-        const senderNumber = senderId.split('@')[0];
         const text = msg.body.trim();
-        const isBotOwner = msg.fromMe || MY_ADMIN_NUMBERS.includes(senderNumber);
+        
+        // 3. الفحص الخارق للملكية (حتى لو واتساب مسح كود الدولة، سيتعرف عليه)
+        const isBotOwner = msg.fromMe || MY_ADMIN_NUMBERS.includes(senderNumber) || MY_ADMIN_NUMBERS.some(admin => senderNumber.endsWith(admin));
+
+        // سطر الفحص في السجلات لكي ترى بعينك ماذا قرأ البوت
+        console.log(`[DEBUG] 📩 رسالة: "${text}" | 👤 رقم المرسل الصافي: ${senderNumber} | 👑 هل هو المالك؟ ${isBotOwner}`);
 
         if (!chat.isGroup && !isBotOwner) return;
 
