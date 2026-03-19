@@ -9,7 +9,7 @@ const path = require('path');
 // =========================================
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => { res.send('البوت يعمل بنجاح!'); });
+app.get('/', (req, res) => { res.send('البوت يعمل بنجاح! الرامات تحت السيطرة 🚀'); });
 app.listen(PORT, () => { console.log(`🌍 خادم الويب يعمل على المنفذ ${PORT}`); });
 
 // =========================================
@@ -80,7 +80,8 @@ setInterval(() => {
     if (changed) saveWarnings();
     for (const key in spamTracker) { delete spamTracker[key]; }
     clearChromiumCache();
-}, 24 * 60 * 60 * 1000);
+    if (global.gc) { global.gc(); } // إجبار تنظيف الذاكرة
+}, 12 * 60 * 60 * 1000); // كل 12 ساعة
 
 // =========================================
 // 👑 3. أرقام المالكين
@@ -136,6 +137,36 @@ client.on('disconnected', async () => {
         isReconnecting = false;
     }, 5000);
 });
+
+// =========================================
+// 🛡️ مراقب الرامات الذكي (يمنع الانهيار Out of Memory)
+// =========================================
+setInterval(async () => {
+    const memoryData = process.memoryUsage();
+    // حساب الرامات المستخدمة بالميجابايت
+    const memoryUsageMB = Math.round(memoryData.rss / 1024 / 1024);
+    
+    // سيتم طباعة الاستهلاك في الشاشة السوداء لتطمئن
+    console.log(`📊 استهلاك الرامات الحالي: ${memoryUsageMB} MB`);
+
+    // إذا تخطى الاستهلاك 380 ميجا (قبل أن ينهار السيرفر عند 500 ميجا)
+    if (memoryUsageMB > 380) {
+        console.log('🚨 تحذير: الرامات تقترب من الامتلاء! جاري عمل (غسيل معدة) وتفريغ الذاكرة...');
+        if (isReconnecting) return;
+        isReconnecting = true;
+        try {
+            await client.destroy(); // يغلق المتصفح ليفجر الذاكرة المتراكمة
+            clearChromiumCache();
+            console.log('✅ تم تفريغ الرامات بنجاح. جاري إعادة التشغيل...');
+            setTimeout(async () => {
+                try { await client.initialize(); } catch (err) {}
+                isReconnecting = false;
+            }, 8000);
+        } catch (e) {
+            isReconnecting = false;
+        }
+    }
+}, 10 * 60 * 1000); // يفحص الرامات كل 10 دقائق
 
 // =========================================
 // ⚙️ 5. إعدادات القوانين 
@@ -273,7 +304,6 @@ client.on('message_create', async msg => {
     try {
         const chat = await msg.getChat();
         
-        // التقاط الرقم الخام وتصفيته من أي رموز
         let rawSenderId = msg.fromMe ? (msg.from || msg.to) : (msg.author || msg.from);
         if (msg.fromMe && client.info && client.info.wid) { rawSenderId = client.info.wid._serialized; }
         
@@ -286,8 +316,6 @@ client.on('message_create', async msg => {
         } catch(e) {}
 
         const text = msg.body.trim();
-        
-        // فحص الملكية الخارق
         const isBotOwner = msg.fromMe || MY_ADMIN_NUMBERS.includes(senderNumber) || MY_ADMIN_NUMBERS.some(admin => senderNumber.endsWith(admin));
 
         if (!chat.isGroup && !isBotOwner) return;
