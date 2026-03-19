@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "start": "node index.js"
+    "start": "node --max-old-space-size=300 index.js"
   },
   "dependencies": {
     "express": "^4.21.1",
