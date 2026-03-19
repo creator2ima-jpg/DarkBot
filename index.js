@@ -13,7 +13,7 @@ app.get('/', (req, res) => {
     res.send('البوت يعمل بنجاح وبدون توقف!');
 });
 app.listen(PORT, () => {
-    console.log(`🌍 خادم الويب يعمل على المنفذ ${PORT} (تم حل مشكلة التوقف التلقائي)`);
+    console.log(`🌍 خادم الويب يعمل على المنفذ ${PORT}`);
 });
 
 // =========================================
@@ -55,7 +55,7 @@ function saveMerchants() {
 }
 
 // =========================================
-// 🧹 نظام المكنسة (تنظيف الكاش العميق لحماية الفوليوم)
+// 🧹 نظام المكنسة (تنظيف الكاش العميق)
 // =========================================
 function clearChromiumCache() {
     try {
@@ -77,7 +77,7 @@ function clearChromiumCache() {
 clearChromiumCache();
 
 // =========================================
-// 🚫 2. نظام Anti-Spam (تنظيف تلقائي للرامات)
+// 🚫 2. نظام Anti-Spam
 // =========================================
 const spamTracker = {};
 const SPAM_LIMIT = 5;       
@@ -107,7 +107,7 @@ setInterval(() => {
 }, 24 * 60 * 60 * 1000);
 
 // =========================================
-// 👑 3. أرقام المالكين (المدير العام)
+// 👑 3. أرقام المالكين
 // =========================================
 const MY_ADMIN_NUMBERS =[
     "201092996413",
@@ -141,7 +141,11 @@ const client = new Client({
             '--js-flags="--max-old-space-size=250"', 
             '--disk-cache-size=1',                
             '--disable-application-cache',        
-            '--disable-offline-load-stale-cache'  
+            '--disable-offline-load-stale-cache',
+            // 👇 الأوامر الجديدة لمنع "سبات" المتصفح في الخلفية
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-renderer-backgrounding'
         ]
     }
 });
@@ -169,7 +173,7 @@ client.on('disconnected', async () => {
 });
 
 // =========================================
-// ⚙️ 5. إعدادات القوانين والكلمات المسيئة 
+// ⚙️ 5. إعدادات القوانين 
 // =========================================
 const botPrefix = "بوت دارك فاير | Dark Fire Bot \n\n";
 const rulesText = `لائحة القوانين:\n1. ممنوع إرسال لينكات 🟥\n2. شتائم = كيك (طرد) 🟥\n3. ممنوع منشن للكل 🟥\n4. صلِّ على النبي في قلبك كده، واذكر الله.`;
@@ -318,7 +322,6 @@ client.on('group_admin_changed', async (notification) => {
 // 📩 7. نظام استقبال الرسائل والأوامر
 // =========================================
 client.on('message_create', async msg => {
-    // 🔍 أسطر الفحص العميق لمعرفة سبب التجاهل
     console.log(`[DEBUG] 📩 رسالة واردة: "${msg.body}"`);
     
     try {
@@ -334,18 +337,13 @@ client.on('message_create', async msg => {
         } catch(e) {}
 
         const senderNumber = senderId.split('@')[0];
-        
-        // 🔍 فحص رقم المالك
-        console.log(`[DEBUG] 👤 رقم المرسل: ${senderNumber} | هل هو جروب؟ ${chat.isGroup}`);
-        
         const text = msg.body.trim();
         const isBotOwner = msg.fromMe || MY_ADMIN_NUMBERS.includes(senderNumber);
 
-        // 🛑 الحماية: تجاهل رسائل الخاص للأعضاء العاديين
         if (!chat.isGroup && !isBotOwner) return;
 
         // =========================================
-        // 🌐 أوامر المالك العامة (في الخاص والجروبات)
+        // 🌐 أوامر المالك العامة
         // =========================================
         if (isBotOwner) {
             
@@ -455,13 +453,9 @@ client.on('message_create', async msg => {
             }
         }
 
-        // =========================================
-        // 🛑 إذا لم نكن في جروب نتوقف هنا
-        // =========================================
         if (!chat.isGroup) return;
 
         const chatId = chat.id._serialized;
-
         let botIsAdmin = false;
         try {
             const botId = client.info.wid._serialized.replace(/:\d+/, "");
@@ -478,7 +472,7 @@ client.on('message_create', async msg => {
         }
 
         // =========================================
-        // 🌟 أوامر المالك الخاصة بالجروب 🌟
+        // 🌟 أوامر المالك الخاصة بالجروب
         // =========================================
         if (isBotOwner) {
             if (text === '!صلاحياتي') {
@@ -649,7 +643,6 @@ client.on('message_create', async msg => {
         // =========================================
         // ⚔️ العقوبات
         // =========================================
-        
         if (isSpamming(senderId)) { if (botIsAdmin) { try { await msg.delete(true); } catch (e) {} } return; }
 
         if (settings.swear && containsBadWordSmart(msg.body)) {
