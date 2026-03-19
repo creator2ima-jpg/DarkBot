@@ -5,11 +5,11 @@ const fs = require('fs');
 const path = require('path');
 
 // =========================================
-// 🌐 خادم الويب (لمنع التوقف التلقائي)
+// 🌐 خادم الويب
 // =========================================
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => { res.send('البوت يعمل بنجاح! الرامات تحت السيطرة 🚀'); });
+app.get('/', (req, res) => { res.send('البوت يعمل بنجاح! الرامات مخنوقة تماماً 🚀'); });
 app.listen(PORT, () => { console.log(`🌍 خادم الويب يعمل على المنفذ ${PORT}`); });
 
 // =========================================
@@ -46,8 +46,7 @@ function saveMerchants() {
 
 function clearChromiumCache() {
     try {
-        const basePath = path.join(dataPath, '.wwebjs_auth', 'session', 'Default');
-        ['Cache', 'Code Cache', path.join('Service Worker', 'CacheStorage')].forEach(p => {
+        const basePath = path.join(dataPath, '.wwebjs_auth', 'session', 'Default');['Cache', 'Code Cache', 'Media Cache', path.join('Service Worker', 'CacheStorage')].forEach(p => {
             const cachePath = path.join(basePath, p);
             if (fs.existsSync(cachePath)) fs.rmSync(cachePath, { recursive: true, force: true });
         });
@@ -80,8 +79,8 @@ setInterval(() => {
     if (changed) saveWarnings();
     for (const key in spamTracker) { delete spamTracker[key]; }
     clearChromiumCache();
-    if (global.gc) { global.gc(); } // إجبار تنظيف الذاكرة
-}, 12 * 60 * 60 * 1000); // كل 12 ساعة
+    if (global.gc) { global.gc(); } 
+}, 12 * 60 * 60 * 1000); 
 
 // =========================================
 // 👑 3. أرقام المالكين
@@ -99,19 +98,31 @@ function formatDate(timestamp) {
 }
 
 // =========================================
-// 🚀 4. إعدادات البوت والاتصال (مانع سحب الرامات)
+// 🚀 4. إعدادات البوت (أقصى حماية للرامات)
 // =========================================
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: dataPath }),
     puppeteer: {
         headless: true,
         args:[
-            '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas', '--no-first-run', '--no-zygote', '--disable-gpu',
-            '--disable-application-cache', '--disable-offline-load-stale-cache',
-            '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows',
+            '--no-sandbox', 
+            '--disable-setuid-sandbox', 
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas', 
+            '--no-first-run', 
+            '--no-zygote', 
+            '--disable-gpu',
+            '--js-flags="--max-old-space-size=200"', // تم تقليله لـ 200 ميجا فقط
+            '--disk-cache-size=1',                
+            '--disable-application-cache', 
+            '--disable-offline-load-stale-cache',
+            '--disable-background-timer-throttling', 
+            '--disable-backgrounding-occluded-windows',
             '--disable-renderer-backgrounding',
-            '--blink-settings=imagesEnabled=false' // منع تحميل الصور لتوفير الرامات
+            // 🔥 الثلاث أوامر العسكرية لمنع الانفجار المفاجئ للرامات
+            '--disable-features=site-per-process,Translate,OptimizationHints,MediaRouter',
+            '--renderer-process-limit=1',
+            '--mute-audio'
         ]
     }
 });
@@ -139,29 +150,33 @@ client.on('disconnected', async () => {
     }, 5000);
 });
 
-// مراقب الرامات الذكي
+// =========================================
+// 🛡️ مراقب الرامات السريع (كل 3 دقائق)
+// =========================================
 setInterval(async () => {
     const memoryData = process.memoryUsage();
     const memoryUsageMB = Math.round(memoryData.rss / 1024 / 1024);
-    console.log(`📊 استهلاك الرامات الحالي: ${memoryUsageMB} MB`);
+    console.log(`📊 الرامات: ${memoryUsageMB} MB`);
 
-    if (memoryUsageMB > 380) {
-        console.log('🚨 تحذير: الرامات تقترب من الامتلاء! جاري تفريغ الذاكرة...');
+    // إذا تخطت الرامات 250 ميجا (قبل الانفجار بوقت طويل)
+    if (memoryUsageMB > 250) {
+        console.log('🚨 تحذير: الرامات ترتفع بسرعة! جاري كبح المتصفح...');
         if (isReconnecting) return;
         isReconnecting = true;
         try {
-            await client.destroy();
+            await client.destroy(); 
             clearChromiumCache();
-            console.log('✅ تم تفريغ الرامات. جاري إعادة التشغيل...');
+            if (global.gc) { global.gc(); }
+            console.log('✅ تم تفريغ الرامات بنجاح. جاري إعادة التشغيل...');
             setTimeout(async () => {
                 try { await client.initialize(); } catch (err) {}
                 isReconnecting = false;
-            }, 8000);
+            }, 5000);
         } catch (e) {
             isReconnecting = false;
         }
     }
-}, 10 * 60 * 1000);
+}, 3 * 60 * 1000); 
 
 // =========================================
 // ⚙️ 5. إعدادات القوانين 
@@ -360,7 +375,7 @@ client.on('message_create', async msg => {
 
                 await chat.sendMessage(`${botPrefix}⏳ جاري تجهيز الإذاعة...\nالنوع: ${isGeneralBroadcast ? 'عامة (لكل الجروبات)' : 'خاصة (للمشتركين فقط)'}\nسيتم الإرسال ببطء لتجنب حظر رقم البوت.`);
 
-                let targetGroups = [];
+                let targetGroups =[];
                 let allChats =[];
                 try { allChats = await client.getChats(); } catch(e) {}
 
@@ -416,7 +431,7 @@ client.on('message_create', async msg => {
             }
 
             if (!chat.isGroup && (text.startsWith('!تفعيل') || text.startsWith('!ايقاف') || text === '!فحص' || text === '!صلاحياتي' || text.startsWith('!نظام'))) {
-                await chat.sendMessage(`${botPrefix}⚠️ عذراً، أوامر التفعيل والإيقاف يجب أن تُكتب داخل الجروب نفسه.\n\n*الأوامر المسموحة في الخاص:* \n- !كل الجروبات\n- !اذاعة [رسالتك]\n- !اذاعة عامة[رسالتك]`);
+                await chat.sendMessage(`${botPrefix}⚠️ عذراً، أوامر التفعيل والإيقاف يجب أن تُكتب داخل الجروب نفسه.\n\n*الأوامر المسموحة في الخاص:* \n- !كل الجروبات\n- !اذاعة [رسالتك]\n- !اذاعة عامة [رسالتك]`);
                 return;
             }
         }
