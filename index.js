@@ -101,8 +101,8 @@ function formatDate(timestamp) {
 // 🚀 4. إعدادات البوت والاتصال 
 // =========================================
 const client = new Client({
-    authStrategy: new LocalAuth({ dataPath: dataPath }),
-    puppeteer: {
+    authStrategy: new LocalAuth({ clientId: "DarkBot-V2", dataPath: dataPath }),
+    puppeteer: {ٍ
         headless: true,
         args:[
             '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
