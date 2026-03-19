@@ -94,7 +94,7 @@ function formatDate(timestamp) {
 }
 
 // =========================================
-// 🚀 4. إعدادات المتصفح (الخنق المبرمج للرامات)
+// 🚀 4. إعدادات المتصفح (المعادلة الموزونة النهائية)
 // =========================================
 const client = new Client({
     authStrategy: new LocalAuth({ clientId: "DarkBot-V2", dataPath: dataPath }),
@@ -108,13 +108,11 @@ const client = new Client({
             '--no-first-run', 
             '--no-zygote', 
             '--disable-gpu',
-            '--js-flags="--max-old-space-size=250"', // تحديد الرامات إجبارياً
-            '--disk-cache-size=1', // منع تخزين الملفات المؤقتة
-            '--media-cache-size=1', // منع تخزين الميديا
-            '--disable-extensions', // إيقاف الإضافات
-            '--disable-default-apps',
-            '--disable-background-networking', // إيقاف تحديثات كروم الخلفية
-            '--mute-audio' // كتم الصوت لتوفير المعالجة
+            '--js-flags="--max-old-space-size=250"', // يمنع انفجار الرامات
+            '--disk-cache-size=1',
+            '--disable-background-timer-throttling', // يمنع المتصفح من النوم
+            '--disable-backgrounding-occluded-windows', // يجعله منتبهاً للرسائل
+            '--disable-renderer-backgrounding' // يمنع تجميد الواتساب
         ]
     }
 });
@@ -125,7 +123,7 @@ client.on('qr', qr => {
 });
 
 client.on('ready', () => {
-    console.log('✅ البوت جاهز ومستقر ويعمل الآن بوضع توفير الطاقة.');
+    console.log('✅ البوت جاهز ومستقر ويعمل الآن بوضع توفير الطاقة واليقظة التامة.');
     restoreMerchantTimers();
 });
 
