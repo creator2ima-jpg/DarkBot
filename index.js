@@ -9,7 +9,7 @@ const path = require('path');
 // =========================================
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => { res.send('البوت يعمل بنجاح! الرامات مخنوقة تماماً 🚀'); });
+app.get('/', (req, res) => { res.send('البوت يعمل بنجاح! الرامات مخنوقة والنبض مستقر 🚀'); });
 app.listen(PORT, () => { console.log(`🌍 خادم الويب يعمل على المنفذ ${PORT}`); });
 
 // =========================================
@@ -98,8 +98,11 @@ function formatDate(timestamp) {
 }
 
 // =========================================
-// 🚀 4. إعدادات البوت (أقصى حماية للرامات)
+// 🚀 4. إعدادات البوت والاتصال 
 // =========================================
+let isReconnecting = false;
+let isBotReady = false; // متغير جديد لمعرفة هل البوت في وعيه أم لا
+
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: dataPath }),
     puppeteer: {
@@ -112,14 +115,13 @@ const client = new Client({
             '--no-first-run', 
             '--no-zygote', 
             '--disable-gpu',
-            '--js-flags="--max-old-space-size=200"', // تم تقليله لـ 200 ميجا فقط
+            '--js-flags="--max-old-space-size=200"', 
             '--disk-cache-size=1',                
             '--disable-application-cache', 
             '--disable-offline-load-stale-cache',
             '--disable-background-timer-throttling', 
             '--disable-backgrounding-occluded-windows',
             '--disable-renderer-backgrounding',
-            // 🔥 الثلاث أوامر العسكرية لمنع الانفجار المفاجئ للرامات
             '--disable-features=site-per-process,Translate,OptimizationHints,MediaRouter',
             '--renderer-process-limit=1',
             '--mute-audio'
@@ -135,14 +137,15 @@ client.on('qr', qr => {
 
 client.on('ready', () => {
     console.log('✅ البوت جاهز ومستقر ويعمل الآن.');
+    isBotReady = true;
     restoreMerchantTimers();
 });
 
-let isReconnecting = false;
 client.on('disconnected', async () => {
     if (isReconnecting) return;
     isReconnecting = true;
-    console.log('🔄 انقطع الاتصال، إعادة التشغيل...');
+    isBotReady = false;
+    console.log('🔄 انقطع الاتصال صراحةً، إعادة التشغيل...');
     try { await client.destroy(); } catch (err) {}
     setTimeout(async () => {
         try { await client.initialize(); } catch (err) {}
@@ -151,18 +154,45 @@ client.on('disconnected', async () => {
 });
 
 // =========================================
-// 🛡️ مراقب الرامات السريع (كل 3 دقائق)
+// 💓 5. جهاز كشف النبض (Heartbeat Monitor) + الرامات
 // =========================================
 setInterval(async () => {
+    // 1. فحص الرامات
     const memoryData = process.memoryUsage();
     const memoryUsageMB = Math.round(memoryData.rss / 1024 / 1024);
     console.log(`📊 الرامات: ${memoryUsageMB} MB`);
 
-    // إذا تخطت الرامات 250 ميجا (قبل الانفجار بوقت طويل)
+    // 2. فحص النبض (التجمد الصامت)
+    if (isBotReady && !isReconnecting) {
+        try {
+            const state = await client.getState();
+            console.log(`💓 حالة الاتصال بوصلات واتساب: ${state}`);
+            if (state !== 'CONNECTED') {
+                throw new Error('Not Connected');
+            }
+        } catch (error) {
+            console.log('🚨 اكتشاف تجمد صامت! البوت لا يستجيب لواتساب. جاري الإنعاش القسري...');
+            isReconnecting = true;
+            isBotReady = false;
+            try {
+                await client.destroy();
+                clearChromiumCache();
+                console.log('✅ تم تفريغ الذاكرة وقطع الاتصال المعلق. جاري إعادة التشغيل...');
+                setTimeout(async () => {
+                    try { await client.initialize(); } catch (err) {}
+                    isReconnecting = false;
+                }, 5000);
+            } catch (e) { isReconnecting = false; }
+            return; // خروج لكي لا يكمل فحص الرامات إذا كان مجمداً
+        }
+    }
+
+    // 3. معالجة ارتفاع الرامات (إن حدث)
     if (memoryUsageMB > 250) {
         console.log('🚨 تحذير: الرامات ترتفع بسرعة! جاري كبح المتصفح...');
         if (isReconnecting) return;
         isReconnecting = true;
+        isBotReady = false;
         try {
             await client.destroy(); 
             clearChromiumCache();
@@ -172,14 +202,12 @@ setInterval(async () => {
                 try { await client.initialize(); } catch (err) {}
                 isReconnecting = false;
             }, 5000);
-        } catch (e) {
-            isReconnecting = false;
-        }
+        } catch (e) { isReconnecting = false; }
     }
-}, 3 * 60 * 1000); 
+}, 3 * 60 * 1000); // يفحص الرامات والنبض كل 3 دقائق
 
 // =========================================
-// ⚙️ 5. إعدادات القوانين 
+// ⚙️ 6. إعدادات القوانين 
 // =========================================
 const botPrefix = "بوت دارك فاير | Dark Fire Bot \n\n";
 const rulesText = `لائحة القوانين:\n1. ممنوع إرسال لينكات 🟥\n2. شتائم = كيك (طرد) 🟥\n3. ممنوع منشن للكل 🟥\n4. صلِّ على النبي في قلبك كده، واذكر الله.`;
@@ -201,7 +229,7 @@ function containsBadWordSmart(messageText) {
 }
 
 // =========================================
-// 🛡️ 6. نظام توثيق التجار
+// 🛡️ 7. نظام توثيق التجار
 // =========================================
 async function restoreMerchantTimers() {
     const now = Date.now();
@@ -308,7 +336,7 @@ client.on('group_admin_changed', async (notification) => {
 });
 
 // =========================================
-// 📩 7. نظام استقبال الرسائل والأوامر
+// 📩 8. نظام استقبال الرسائل والأوامر
 // =========================================
 client.on('message_create', async msg => {
     try {
