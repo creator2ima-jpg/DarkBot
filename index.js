@@ -9,11 +9,11 @@ const path = require('path');
 // =========================================
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => { res.send('البوت يعمل بنجاح! المساحة 500 ميجا تحت السيطرة التامة 🚀'); });
+app.get('/', (req, res) => { res.send('البوت يعمل بنجاح! محصن ضد الأقفال وغيبوبة المزامنة 🚀'); });
 app.listen(PORT, () => { console.log(`🌍 خادم الويب يعمل على المنفذ ${PORT}`); });
 
 // =========================================
-// 🗄️ 2. نظام الذاكرة الدائمة والكاسحة (لـ 500 ميجا)
+// 🗄️ 2. نظام الذاكرة الدائمة والكاسحة ومكسر الأقفال
 // =========================================
 const dataPath = fs.existsSync('/data') ? '/data' : __dirname;
 const dbFile = path.join(dataPath, 'warnings.json');
@@ -44,20 +44,39 @@ function saveMerchants() {
     fs.writeFileSync(merchantsFile, JSON.stringify(toSave, null, 2));
 }
 
-// 🧹 الكاسحة العدوانية المُعدلة للمساحات الصغيرة (500 ميجا)
+// 🔥 مكسر الأقفال (يحل مشكلة Profile in use و Code 21)
+function unlockChromiumProfile() {
+    try {
+        const sessionPath = path.join(dataPath, '.wwebjs_auth', 'session');
+        if (fs.existsSync(sessionPath)) {
+            const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+            lockFiles.forEach(file => {
+                const filePath = path.join(sessionPath, file);
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath); // كسر القفل
+                    console.log(`🔓 تم كسر القفل القديم (${file}) بنجاح.`);
+                }
+            });
+        }
+    } catch (err) {}
+}
+
+// 🧹 الكاسحة العدوانية لتنظيف الكاش
 function clearChromiumCache() {
     try {
         const basePath = path.join(dataPath, '.wwebjs_auth', 'session', 'Default');
         if (!fs.existsSync(basePath)) return;
-        // إضافة Crashpad لتقليل المساحة المهدرة
-        const junkFolders =['Cache', 'Code Cache', 'Media Cache', 'GPUCache', 'VideoDecodeStats', 'Crashpad', path.join('Service Worker', 'CacheStorage'), path.join('Service Worker', 'ScriptCache')];
+        const junkFolders =['Cache', 'Code Cache', 'Media Cache', 'GPUCache', 'VideoDecodeStats', path.join('Service Worker', 'CacheStorage'), path.join('Service Worker', 'ScriptCache')];
         junkFolders.forEach(folder => {
             const targetPath = path.join(basePath, folder);
             if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { recursive: true, force: true });
         });
-        console.log('🧹 تم تنظيف قمامة المتصفح بنجاح لضمان عدم امتلاء الـ 500 ميجا.');
+        console.log('🧹 تم تنظيف كاش المتصفح لضمان المزامنة السريعة.');
     } catch (err) {}
 }
+
+// تشغيل مكسر الأقفال والكاسحة قبل بدء البوت
+unlockChromiumProfile();
 clearChromiumCache();
 
 // =========================================
@@ -77,7 +96,6 @@ function isSpamming(senderId) {
     return spamTracker[senderId].count > SPAM_LIMIT;
 }
 
-// 🔥 تشغيل التنظيف كل ساعة واحدة بدلاً من ساعتين لضمان حماية الـ 500 ميجا
 setInterval(() => {
     let changed = false;
     for (const key in userWarnings) {
@@ -86,9 +104,10 @@ setInterval(() => {
     if (changed) saveWarnings();
     for (const key in spamTracker) { delete spamTracker[key]; }
     
+    unlockChromiumProfile();
     clearChromiumCache(); 
     if (global.gc) { global.gc(); } 
-}, 1 * 60 * 60 * 1000); // 1 ساعة
+}, 2 * 60 * 60 * 1000); 
 
 // =========================================
 // 👑 4. أرقام المالكين
@@ -110,7 +129,7 @@ function formatDate(timestamp) {
 // =========================================
 let isReconnecting = false;
 let isBotReady = false; 
-let connectionAttemptTime = Date.now();
+let connectionAttemptTime = Date.now(); 
 
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: dataPath }),
@@ -154,17 +173,18 @@ client.on('disconnected', async () => {
     if (isReconnecting) return;
     isReconnecting = true;
     isBotReady = false;
-    connectionAttemptTime = Date.now();
+    connectionAttemptTime = Date.now(); 
     console.log('🔄 انقطع الاتصال صراحةً، إعادة التشغيل...');
     try { await client.destroy(); } catch (err) {}
     setTimeout(async () => {
+        unlockChromiumProfile(); // كسر القفل قبل محاولة إعادة الاتصال
         try { await client.initialize(); } catch (err) {}
         isReconnecting = false;
     }, 5000);
 });
 
 // =========================================
-// ⏱️ 6. كلب الحراسة (Watchdog) 
+// ⏱️ 6. كلب الحراسة (Watchdog) لمنع غيبوبة الساعتين
 // =========================================
 setInterval(() => {
     if (!isBotReady && (Date.now() - connectionAttemptTime > 6 * 60 * 1000)) {
@@ -192,8 +212,9 @@ setInterval(async () => {
             connectionAttemptTime = Date.now();
             try {
                 await client.destroy();
+                unlockChromiumProfile();
                 clearChromiumCache();
-                console.log('✅ تم تفريغ الذاكرة. جاري إعادة التشغيل...');
+                console.log('✅ تم تفريغ الذاكرة وكسر الأقفال. جاري إعادة التشغيل...');
                 setTimeout(async () => {
                     try { await client.initialize(); } catch (err) {}
                     isReconnecting = false;
@@ -211,6 +232,7 @@ setInterval(async () => {
         connectionAttemptTime = Date.now();
         try {
             await client.destroy(); 
+            unlockChromiumProfile();
             clearChromiumCache();
             if (global.gc) { global.gc(); }
             console.log('✅ تم تفريغ الرامات بنجاح. جاري إعادة التشغيل...');
@@ -473,7 +495,7 @@ client.on('message_create', async msg => {
             }
 
             if (!chat.isGroup && (text.startsWith('!تفعيل') || text.startsWith('!ايقاف') || text === '!فحص' || text === '!صلاحياتي' || text.startsWith('!نظام'))) {
-                await chat.sendMessage(`${botPrefix}⚠️ عذراً، أوامر التفعيل والإيقاف يجب أن تُكتب داخل الجروب نفسه.\n\n*الأوامر المسموحة في الخاص:* \n- !كل الجروبات\n- !اذاعة [رسالتك]\n- !اذاعة عامة [رسالتك]`);
+                await chat.sendMessage(`${botPrefix}⚠️ عذراً، أوامر التفعيل والإيقاف يجب أن تُكتب داخل الجروب نفسه.\n\n*الأوامر المسموحة في الخاص:* \n- !كل الجروبات\n- !اذاعة[رسالتك]\n- !اذاعة عامة [رسالتك]`);
                 return;
             }
         }
