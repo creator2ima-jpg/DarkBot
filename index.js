@@ -3,17 +3,18 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process'); // 🚀 المكتبة الجديدة للتدخل العسكري في نظام السيرفر
 
 // =========================================
 // 🌐 1. خادم الويب
 // =========================================
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => { res.send('البوت يعمل بنجاح! الأقفال مكسورة والرامات تحت السيطرة 🚀'); });
+app.get('/', (req, res) => { res.send('البوت يعمل بنجاح! الأقفال مكسورة بقوة لينكس 🚀'); });
 app.listen(PORT, () => { console.log(`🌍 خادم الويب يعمل على المنفذ ${PORT}`); });
 
 // =========================================
-// 🗄️ 2. نظام الذاكرة الدائمة والكاسحة ومكسر الأقفال (المدمر)
+// 🗄️ 2. نظام الذاكرة الدائمة والكاسحة ومكسر الأقفال
 // =========================================
 const dataPath = fs.existsSync('/data') ? '/data' : __dirname;
 const dbFile = path.join(dataPath, 'warnings.json');
@@ -44,22 +45,14 @@ function saveMerchants() {
     fs.writeFileSync(merchantsFile, JSON.stringify(toSave, null, 2));
 }
 
-// 🔥 مكسر الأقفال المدمر (تم التحديث ليفجر أي قفل معلق)
+// 🔥 مكسر الأقفال العسكري (يستخدم أوامر لينكس الأصلية للتدمير الإجباري)
 function unlockChromiumProfile() {
     try {
         const sessionPath = path.join(dataPath, '.wwebjs_auth', 'session');
         if (fs.existsSync(sessionPath)) {
-            // يبحث عن أي ملف يحتوي على كلمة Singleton ويدمره بقوة
-            const files = fs.readdirSync(sessionPath);
-            files.forEach(file => {
-                if (file.includes('Singleton')) {
-                    const filePath = path.join(sessionPath, file);
-                    try { 
-                        fs.rmSync(filePath, { force: true, recursive: true }); 
-                        console.log(`🔓 تم تدمير القفل المعلق: ${file}`); 
-                    } catch (e) {}
-                }
-            });
+            // تنفيذ أمر المسح الإجباري داخل نظام السيرفر
+            execSync(`rm -rf "${path.join(sessionPath, 'Singleton*')}"`);
+            console.log('🔓 تم تدمير الأقفال الوهمية بقوة نظام لينكس بنجاح.');
         }
     } catch (err) {}
 }
@@ -155,9 +148,7 @@ const client = new Client({
             '--disable-renderer-backgrounding',
             '--disable-features=site-per-process,Translate,OptimizationHints,MediaRouter',
             '--renderer-process-limit=1',
-            '--mute-audio',
-            '--password-store=basic',
-            '--use-mock-keychain'
+            '--mute-audio'
         ]
     }
 });
@@ -193,7 +184,7 @@ client.on('disconnected', async () => {
 // =========================================
 setInterval(() => {
     if (!isBotReady && (Date.now() - connectionAttemptTime > 6 * 60 * 1000)) {
-        console.log('🚨 كلب الحراسة: البوت معلق لأكثر من 6 دقائق! جاري القتل الإجباري...');
+        console.log('🚨 كلب الحراسة: البوت معلق لأكثر من 6 دقائق! جاري القتل الإجباري للبدء بنظافة...');
         process.exit(1); 
     }
 }, 60 * 1000); 
@@ -211,7 +202,7 @@ setInterval(async () => {
             const state = await client.getState();
             if (state !== 'CONNECTED') throw new Error('Not Connected');
         } catch (error) {
-            console.log('🚨 اكتشاف تجمد صامت! جاري الإنعاش القسري...');
+            console.log('🚨 اكتشاف تجمد صامت! البوت لا يستجيب لواتساب. جاري الإنعاش القسري...');
             isReconnecting = true;
             isBotReady = false;
             connectionAttemptTime = Date.now();
@@ -219,6 +210,7 @@ setInterval(async () => {
                 await client.destroy();
                 unlockChromiumProfile();
                 clearChromiumCache();
+                console.log('✅ تم تفريغ الذاكرة وكسر الأقفال. جاري إعادة التشغيل...');
                 setTimeout(async () => {
                     try { await client.initialize(); } catch (err) {}
                     isReconnecting = false;
@@ -239,6 +231,7 @@ setInterval(async () => {
             unlockChromiumProfile();
             clearChromiumCache();
             if (global.gc) { global.gc(); }
+            console.log('✅ تم تفريغ الرامات بنجاح. جاري إعادة التشغيل...');
             setTimeout(async () => {
                 try { await client.initialize(); } catch (err) {}
                 isReconnecting = false;
@@ -399,6 +392,7 @@ client.on('message_create', async msg => {
 
         if (!chat.isGroup && !isBotOwner) return;
 
+        // أوامر المالك
         if (isBotOwner) {
             
             if (text === '!كل الجروبات' || text === '!الجروبات') {
@@ -517,6 +511,7 @@ client.on('message_create', async msg => {
             groupSettings[chatId] = { links: false, swear: false, merchant: false, stickers: false, antiMention: false, linkAction: 'kick', expireAt: null, expiredNotified: false };
         }
 
+        // أوامر المالك الخاصة بالجروب
         if (isBotOwner) {
             if (text === '!صلاحياتي') { await chat.sendMessage(`${botPrefix}🔍 *كشف الصلاحيات:*\n👤 *رقمك:* ${senderNumber}\n👑 *المالك؟* ${isBotOwner ? 'نعم ✅' : 'لا ❌'}\n🛡️ *مشرف؟* ${isSenderAdmin ? 'نعم ✅' : 'لا ❌'}`); return; }
             if (text === '!تفعيل الروابط') { groupSettings[chatId].links = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تشغيل نظام مكافحة الروابط.`); return; }
