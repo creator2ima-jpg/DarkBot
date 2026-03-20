@@ -5,15 +5,15 @@ const fs = require('fs');
 const path = require('path');
 
 // =========================================
-// 🌐 خادم الويب
+// 🌐 1. خادم الويب
 // =========================================
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => { res.send('البوت يعمل بنجاح! الرامات مخنوقة والنبض مستقر 🚀'); });
+app.get('/', (req, res) => { res.send('البوت يعمل بنجاح! المساحة 500 ميجا تحت السيطرة التامة 🚀'); });
 app.listen(PORT, () => { console.log(`🌍 خادم الويب يعمل على المنفذ ${PORT}`); });
 
 // =========================================
-// 🗄️ 1. نظام الذاكرة الدائمة
+// 🗄️ 2. نظام الذاكرة الدائمة والكاسحة (لـ 500 ميجا)
 // =========================================
 const dataPath = fs.existsSync('/data') ? '/data' : __dirname;
 const dbFile = path.join(dataPath, 'warnings.json');
@@ -44,18 +44,24 @@ function saveMerchants() {
     fs.writeFileSync(merchantsFile, JSON.stringify(toSave, null, 2));
 }
 
+// 🧹 الكاسحة العدوانية المُعدلة للمساحات الصغيرة (500 ميجا)
 function clearChromiumCache() {
     try {
-        const basePath = path.join(dataPath, '.wwebjs_auth', 'session', 'Default');['Cache', 'Code Cache', 'Media Cache', path.join('Service Worker', 'CacheStorage')].forEach(p => {
-            const cachePath = path.join(basePath, p);
-            if (fs.existsSync(cachePath)) fs.rmSync(cachePath, { recursive: true, force: true });
+        const basePath = path.join(dataPath, '.wwebjs_auth', 'session', 'Default');
+        if (!fs.existsSync(basePath)) return;
+        // إضافة Crashpad لتقليل المساحة المهدرة
+        const junkFolders =['Cache', 'Code Cache', 'Media Cache', 'GPUCache', 'VideoDecodeStats', 'Crashpad', path.join('Service Worker', 'CacheStorage'), path.join('Service Worker', 'ScriptCache')];
+        junkFolders.forEach(folder => {
+            const targetPath = path.join(basePath, folder);
+            if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { recursive: true, force: true });
         });
+        console.log('🧹 تم تنظيف قمامة المتصفح بنجاح لضمان عدم امتلاء الـ 500 ميجا.');
     } catch (err) {}
 }
 clearChromiumCache();
 
 // =========================================
-// 🚫 2. نظام Anti-Spam
+// 🚫 3. نظام Anti-Spam والتنظيف المجدول
 // =========================================
 const spamTracker = {};
 const SPAM_LIMIT = 5;       
@@ -71,6 +77,7 @@ function isSpamming(senderId) {
     return spamTracker[senderId].count > SPAM_LIMIT;
 }
 
+// 🔥 تشغيل التنظيف كل ساعة واحدة بدلاً من ساعتين لضمان حماية الـ 500 ميجا
 setInterval(() => {
     let changed = false;
     for (const key in userWarnings) {
@@ -78,12 +85,13 @@ setInterval(() => {
     }
     if (changed) saveWarnings();
     for (const key in spamTracker) { delete spamTracker[key]; }
-    clearChromiumCache();
+    
+    clearChromiumCache(); 
     if (global.gc) { global.gc(); } 
-}, 12 * 60 * 60 * 1000); 
+}, 1 * 60 * 60 * 1000); // 1 ساعة
 
 // =========================================
-// 👑 3. أرقام المالكين
+// 👑 4. أرقام المالكين
 // =========================================
 const MY_ADMIN_NUMBERS =[
     "201092996413",
@@ -98,10 +106,11 @@ function formatDate(timestamp) {
 }
 
 // =========================================
-// 🚀 4. إعدادات البوت والاتصال 
+// 🚀 5. إعدادات البوت والاتصال 
 // =========================================
 let isReconnecting = false;
-let isBotReady = false; // متغير جديد لمعرفة هل البوت في وعيه أم لا
+let isBotReady = false; 
+let connectionAttemptTime = Date.now();
 
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: dataPath }),
@@ -145,6 +154,7 @@ client.on('disconnected', async () => {
     if (isReconnecting) return;
     isReconnecting = true;
     isBotReady = false;
+    connectionAttemptTime = Date.now();
     console.log('🔄 انقطع الاتصال صراحةً، إعادة التشغيل...');
     try { await client.destroy(); } catch (err) {}
     setTimeout(async () => {
@@ -154,45 +164,51 @@ client.on('disconnected', async () => {
 });
 
 // =========================================
-// 💓 5. جهاز كشف النبض (Heartbeat Monitor) + الرامات
+// ⏱️ 6. كلب الحراسة (Watchdog) 
+// =========================================
+setInterval(() => {
+    if (!isBotReady && (Date.now() - connectionAttemptTime > 6 * 60 * 1000)) {
+        console.log('🚨 كلب الحراسة: البوت معلق لأكثر من 6 دقائق! جاري القتل الإجباري للبدء بنظافة...');
+        process.exit(1); 
+    }
+}, 60 * 1000); 
+
+// =========================================
+// 💓 7. جهاز كشف النبض والرامات
 // =========================================
 setInterval(async () => {
-    // 1. فحص الرامات
     const memoryData = process.memoryUsage();
     const memoryUsageMB = Math.round(memoryData.rss / 1024 / 1024);
     console.log(`📊 الرامات: ${memoryUsageMB} MB`);
 
-    // 2. فحص النبض (التجمد الصامت)
     if (isBotReady && !isReconnecting) {
         try {
             const state = await client.getState();
-            console.log(`💓 حالة الاتصال بوصلات واتساب: ${state}`);
-            if (state !== 'CONNECTED') {
-                throw new Error('Not Connected');
-            }
+            if (state !== 'CONNECTED') throw new Error('Not Connected');
         } catch (error) {
             console.log('🚨 اكتشاف تجمد صامت! البوت لا يستجيب لواتساب. جاري الإنعاش القسري...');
             isReconnecting = true;
             isBotReady = false;
+            connectionAttemptTime = Date.now();
             try {
                 await client.destroy();
                 clearChromiumCache();
-                console.log('✅ تم تفريغ الذاكرة وقطع الاتصال المعلق. جاري إعادة التشغيل...');
+                console.log('✅ تم تفريغ الذاكرة. جاري إعادة التشغيل...');
                 setTimeout(async () => {
                     try { await client.initialize(); } catch (err) {}
                     isReconnecting = false;
                 }, 5000);
             } catch (e) { isReconnecting = false; }
-            return; // خروج لكي لا يكمل فحص الرامات إذا كان مجمداً
+            return; 
         }
     }
 
-    // 3. معالجة ارتفاع الرامات (إن حدث)
     if (memoryUsageMB > 250) {
         console.log('🚨 تحذير: الرامات ترتفع بسرعة! جاري كبح المتصفح...');
         if (isReconnecting) return;
         isReconnecting = true;
         isBotReady = false;
+        connectionAttemptTime = Date.now();
         try {
             await client.destroy(); 
             clearChromiumCache();
@@ -204,10 +220,10 @@ setInterval(async () => {
             }, 5000);
         } catch (e) { isReconnecting = false; }
     }
-}, 3 * 60 * 1000); // يفحص الرامات والنبض كل 3 دقائق
+}, 3 * 60 * 1000); 
 
 // =========================================
-// ⚙️ 6. إعدادات القوانين 
+// ⚙️ 8. إعدادات القوانين والكلمات المسيئة
 // =========================================
 const botPrefix = "بوت دارك فاير | Dark Fire Bot \n\n";
 const rulesText = `لائحة القوانين:\n1. ممنوع إرسال لينكات 🟥\n2. شتائم = كيك (طرد) 🟥\n3. ممنوع منشن للكل 🟥\n4. صلِّ على النبي في قلبك كده، واذكر الله.`;
@@ -229,7 +245,7 @@ function containsBadWordSmart(messageText) {
 }
 
 // =========================================
-// 🛡️ 7. نظام توثيق التجار
+// 🛡️ 9. نظام توثيق التجار
 // =========================================
 async function restoreMerchantTimers() {
     const now = Date.now();
@@ -336,7 +352,7 @@ client.on('group_admin_changed', async (notification) => {
 });
 
 // =========================================
-// 📩 8. نظام استقبال الرسائل والأوامر
+// 📩 10. نظام استقبال الرسائل والأوامر
 // =========================================
 client.on('message_create', async msg => {
     try {
@@ -358,9 +374,7 @@ client.on('message_create', async msg => {
 
         if (!chat.isGroup && !isBotOwner) return;
 
-        // =========================================
-        // 🌐 أوامر المالك العامة
-        // =========================================
+        // أوامر المالك
         if (isBotOwner) {
             
             if (text === '!كل الجروبات' || text === '!الجروبات') {
@@ -479,9 +493,7 @@ client.on('message_create', async msg => {
             groupSettings[chatId] = { links: false, swear: false, merchant: false, stickers: false, antiMention: false, linkAction: 'kick', expireAt: null, expiredNotified: false };
         }
 
-        // =========================================
-        // 🌟 أوامر المالك الخاصة بالجروب
-        // =========================================
+        // أوامر المالك الخاصة بالجروب
         if (isBotOwner) {
             if (text === '!صلاحياتي') { await chat.sendMessage(`${botPrefix}🔍 *كشف الصلاحيات:*\n👤 *رقمك:* ${senderNumber}\n👑 *المالك؟* ${isBotOwner ? 'نعم ✅' : 'لا ❌'}\n🛡️ *مشرف؟* ${isSenderAdmin ? 'نعم ✅' : 'لا ❌'}`); return; }
             if (text === '!تفعيل الروابط') { groupSettings[chatId].links = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تشغيل نظام مكافحة الروابط.`); return; }
@@ -553,9 +565,6 @@ client.on('message_create', async msg => {
             }
         }
 
-        // =========================================
-        // 🛑 البوابة الحديدية للاشتراكات
-        // =========================================
         const settings = groupSettings[chatId];
         if (!settings.expireAt) return; 
 
@@ -567,9 +576,6 @@ client.on('message_create', async msg => {
             return; 
         }
 
-        // =========================================
-        // 🌟 أوامر الأعضاء
-        // =========================================
         if (text === '!قوانين') { await chat.sendMessage(`${botPrefix}${rulesText}`); return; }
         
         const isolatedUserKey = `${chatId}_${senderId}`; 
@@ -608,9 +614,6 @@ client.on('message_create', async msg => {
             }
         }
 
-        // =========================================
-        // 🚨 1. نظام منع منشن @الكل
-        // =========================================
         if (settings.antiMention) {
             const hasAllTag = text.includes('@الكل') || text.includes('@all') || text.includes('@everyone');
             if (hasAllTag) {
@@ -626,16 +629,16 @@ client.on('message_create', async msg => {
             }
         }
 
-        // =========================================
-        // ⚖️ الحصانة الدبلوماسية
-        // =========================================
         const isImmune = isSenderAdmin; 
         if (isImmune) return; 
 
-        // =========================================
-        // ⚔️ العقوبات
-        // =========================================
-        if (isSpamming(senderId)) { if (botIsAdmin) { try { await msg.delete(true); } catch (e) {} } return; }
+        if (isSpamming(senderId)) {
+            if (botIsAdmin) { try { await msg.delete(true); } catch (e) {} }
+            if (spamTracker[senderId].count === SPAM_LIMIT + 1) {
+                await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nالرجاء التوقف عن الإرسال المتكرر السريع (Spam).`, { mentions: [senderId] });
+            }
+            return; 
+        }
 
         if (settings.swear && containsBadWordSmart(msg.body)) {
             if (botIsAdmin) { try { await msg.delete(true); } catch (error) {} }
