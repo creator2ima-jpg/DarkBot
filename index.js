@@ -776,9 +776,9 @@ client.on('message_create', async msg => {
                     if (botIsAdmin) { try { await msg.delete(true); deleted = true; } catch (error) {} }
                     
                     if(deleted) {
-                        await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع استخدام منشن (@الكل) ${targetString} في هذا الجروب.`, { mentions:[senderId] });
+                        await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع استخدام منشن (الكل) ${targetString} في هذا الجروب.`, { mentions:[senderId] });
                     } else {
-                        await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع استخدام منشن (@الكل).\n(يرجى رفع البوت مشرف ليتمكن من الحذف)`, { mentions:[senderId] });
+                        await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع استخدام منشن (الكل).\n(يرجى رفع البوت مشرف ليتمكن من الحذف)`, { mentions:[senderId] });
                     }
                     return; 
                 }
