@@ -480,7 +480,7 @@ client.on('message_create', async msg => {
             }
 
             if (text.startsWith('!تفعيل') || text.startsWith('!ايقاف') || text === '!فحص' || text.startsWith('!نظام')) {
-                await chat.sendMessage(`${botPrefix}⚠️ عذراً، أوامر التفعيل والإيقاف يجب أن تُكتب داخل الجروب نفسه.\n\n*الأوامر المسموحة في الخاص:* \n- !كل الجروبات\n- !اذاعة [رسالتك]\n- !اذاعة عامة [رسالتك]`);
+                await chat.sendMessage(`${botPrefix}⚠️ عذراً، أوامر التفعيل والإيقاف يجب أن تُكتب داخل الجروب نفسه.\n\n*الأوامر المسموحة في الخاص:* \n- !كل الجروبات\n- !اذاعة[رسالتك]\n- !اذاعة عامة [رسالتك]`);
                 return;
             }
         }
@@ -494,9 +494,9 @@ client.on('message_create', async msg => {
         let botIsAdmin = false;
         let isSenderAdmin = false;
         try {
-            const botNumber = client.info.wid.user; 
-            botIsAdmin = chat.participants.some(p => p.id.user === botNumber && (p.isAdmin || p.isSuperAdmin));
-            isSenderAdmin = chat.participants.some(p => p.id.user === senderNumber && (p.isAdmin || p.isSuperAdmin));
+            const botId = client.info.wid._serialized.replace(/:\d+/, ""); 
+            botIsAdmin = chat.participants.some(p => p.id._serialized === botId && (p.isAdmin || p.isSuperAdmin));
+            isSenderAdmin = chat.participants.some(p => p.id._serialized === senderId && (p.isAdmin || p.isSuperAdmin));
         } catch(e) {}
 
         // 🌟 أمر كشف الصلاحيات (متاح للجميع)
@@ -523,7 +523,7 @@ client.on('message_create', async msg => {
         // أوامر المالك الخاصة بالجروب
         if (isBotOwner) {
             
-            // 🆕 المستويات الـ 3 للروابط والشتائم
+            // المستويات الـ 3 للروابط والشتائم
             if (text === '!تفعيل الروابط للاعضاء') { groupSettings[chatId].links = 'members'; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم منع الروابط على الأعضاء العاديين فقط.`); return; }
             if (text === '!تفعيل الروابط للكل') { groupSettings[chatId].links = 'all'; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم منع الروابط على الجميع.`); return; }
             if (text === '!ايقاف الروابط') { groupSettings[chatId].links = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم السماح بالروابط للجميع.`); return; }
@@ -532,7 +532,7 @@ client.on('message_create', async msg => {
             if (text === '!تفعيل الشتائم للكل') { groupSettings[chatId].swear = 'all'; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تفعيل فلتر الشتائم للجميع.`); return; }
             if (text === '!ايقاف الشتائم') { groupSettings[chatId].swear = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف فلتر الشتائم.`); return; }
 
-            // 🆕 أوامر حماية البوت والطرد
+            // أوامر حماية البوت والطرد
             if (text === '!تفعيل حماية البوت') { groupSettings[chatId].antiBotAbuse = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تفعيل طرد من يسب البوت.`); return; }
             if (text === '!ايقاف حماية البوت') { groupSettings[chatId].antiBotAbuse = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف حماية البوت.`); return; }
 
@@ -626,8 +626,12 @@ client.on('message_create', async msg => {
             await chat.sendMessage(`${botPrefix}👤 أهلاً بك (@${senderNumber})\n⚠️ إنذاراتك في الجروب: ${count} / ${max}`, { mentions:[senderId] }); return;
         }
 
-        // أمر قائمة الشتائم
+        // أمر قائمة الشتائم (تم التقييد للمشرفين والمالك فقط كما طلبت)
         if (text === '!قائمة الشتائم') {
+            if (!isSenderAdmin && !isBotOwner) {
+                await msg.reply(`${botPrefix}⚠️ عذراً، هذا الأمر مخصص للمشرفين والمالك فقط.`);
+                return;
+            }
             let leaderboard =[];
             for (const key in swearStats) {
                 if (key.startsWith(chatId)) { 
@@ -679,10 +683,14 @@ client.on('message_create', async msg => {
         }
 
         // =========================================
-        // 🚨 ميزة أمر الطرد اليدوي (للمشرفين والمالك)
+        // 🚨 ميزة أمر الطرد اليدوي (للمشرفين فقط)
         // =========================================
         if (settings.adminKickCmd && text === '!طرد') {
-            if (!isSenderAdmin && !isBotOwner) return; // منع الأعضاء العاديين تماماً من تنفيذ الأمر
+            // سحب الصلاحية من المالك وإعطائها للمشرف فقط (كما طلبت)
+            if (!isSenderAdmin) {
+                await msg.reply(`${botPrefix}⚠️ عذراً، يجب أن تكون (مشرفاً) في هذا الجروب لتتمكن من استخدام أمر الطرد.`);
+                return;
+            }
 
             if (msg.hasQuotedMsg) {
                 const quotedMsg = await msg.getQuotedMessage();
@@ -726,7 +734,7 @@ client.on('message_create', async msg => {
         // =========================================
         // ⚔️ العقوبات لباقي الميزات
         // =========================================
-        const isImmune = isSenderAdmin; 
+        const isImmune = isSenderAdmin; // الحصانة للمشرفين فقط
 
         if (isSpamming(senderId)) {
             if (botIsAdmin) { try { await msg.delete(true); } catch (e) {} }
