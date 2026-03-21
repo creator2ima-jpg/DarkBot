@@ -341,7 +341,7 @@ client.on('group_join', async (notification) => {
             const expireTime = Date.now() + (30 * 60 * 1000); 
 
             const warningTimer = setTimeout(async () => {
-                if (pendingMerchants[userKey]) await chat.sendMessage(`${botPrefix}⚠️ تنبيه أخير (@${userNumber})!\nمتبقي 3 دقائق لعمل منشن لـ 5 تجار!`, { mentions: [joinedUserId] });
+                if (pendingMerchants[userKey]) await chat.sendMessage(`${botPrefix}⚠️ تنبيه أخير (@${userNumber})!\nمتبقي 3 دقائق لعمل منشن لـ 5 تجار!`, { mentions:[joinedUserId] });
             }, 27 * 60 * 1000); 
 
             const kickTimer = setTimeout(async () => {
@@ -493,11 +493,11 @@ client.on('message_create', async msg => {
         // 🛡️ فحص صلاحيات البوت والمشرف 
         let botIsAdmin = false;
         try {
-            const botNumber = client.info.wid.user; 
-            botIsAdmin = chat.participants.some(p => p.id.user === botNumber && (p.isAdmin || p.isSuperAdmin));
+            const botId = client.info.wid._serialized.replace(/:\d+/, ""); 
+            botIsAdmin = chat.participants.some(p => p.id._serialized === botId && (p.isAdmin || p.isSuperAdmin));
         } catch(e) {}
 
-        const isSenderAdmin = chat.participants.some(p => p.id.user === senderNumber && (p.isAdmin || p.isSuperAdmin));
+        const isSenderAdmin = chat.participants.some(p => p.id._serialized === senderId && (p.isAdmin || p.isSuperAdmin));
 
         // 🌟 أمر كشف الصلاحيات (متاح للجميع)
         if (text === '!صلاحياتي') {
