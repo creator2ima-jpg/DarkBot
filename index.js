@@ -51,14 +51,30 @@ function saveMerchants() {
 let swearStats = safeReadJSON(swearStatsFile);
 function saveSwearStats() { fs.writeFileSync(swearStatsFile, JSON.stringify(swearStats, null, 2)); }
 
+// 🔥 مكسر الأقفال العسكري المطور (يعمل برمجياً لتجاوز حماية السيرفر)
 function unlockChromiumProfile() {
     try {
         const sessionPath = path.join(dataPath, '.wwebjs_auth', 'session');
         if (fs.existsSync(sessionPath)) {
-            execSync(`rm -rf "${path.join(sessionPath, 'Singleton*')}"`);
-            console.log('🔓 تم تدمير الأقفال الوهمية بقوة نظام لينكس بنجاح.');
+            const files = fs.readdirSync(sessionPath);
+            let deletedCount = 0;
+            for (const file of files) {
+                // تدمير أي ملف يبدأ بكلمة Singleton (وهي ملفات القفل التي تسبب الانهيار)
+                if (file.startsWith('Singleton')) {
+                    const filePath = path.join(sessionPath, file);
+                    try {
+                        fs.rmSync(filePath, { force: true, recursive: true });
+                        deletedCount++;
+                    } catch (e) {}
+                }
+            }
+            if (deletedCount > 0) {
+                console.log(`🔓 تم كسر وتدمير (${deletedCount}) من الأقفال الوهمية بنجاح.`);
+            }
         }
-    } catch (err) {}
+    } catch (err) {
+        console.error('⚠️ ملاحظة في كسر الأقفال:', err.message);
+    }
 }
 
 function clearChromiumCache() {
