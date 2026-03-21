@@ -490,14 +490,14 @@ client.on('message_create', async msg => {
 
         const chatId = chat.id._serialized;
 
-        // 🛡️ فحص صلاحيات البوت والمشرف 
+        // 🛡️ فحص صلاحيات البوت والمشرف (النسخة المصححة والخالية من الأخطاء)
         let botIsAdmin = false;
+        let isSenderAdmin = false;
         try {
-            const botId = client.info.wid._serialized.replace(/:\d+/, ""); 
-            botIsAdmin = chat.participants.some(p => p.id._serialized === botId && (p.isAdmin || p.isSuperAdmin));
+            const botNumber = client.info.wid.user; 
+            botIsAdmin = chat.participants.some(p => p.id.user === botNumber && (p.isAdmin || p.isSuperAdmin));
+            isSenderAdmin = chat.participants.some(p => p.id.user === senderNumber && (p.isAdmin || p.isSuperAdmin));
         } catch(e) {}
-
-        const isSenderAdmin = chat.participants.some(p => p.id._serialized === senderId && (p.isAdmin || p.isSuperAdmin));
 
         // 🌟 أمر كشف الصلاحيات (متاح للجميع)
         if (text === '!صلاحياتي') {
@@ -681,7 +681,9 @@ client.on('message_create', async msg => {
         // =========================================
         // 🚨 ميزة أمر الطرد اليدوي (للمشرفين والمالك)
         // =========================================
-        if (settings.adminKickCmd && text === '!طرد' && (isSenderAdmin || isBotOwner)) {
+        if (settings.adminKickCmd && text === '!طرد') {
+            if (!isSenderAdmin && !isBotOwner) return; // منع الأعضاء العاديين تماماً من تنفيذ الأمر
+
             if (msg.hasQuotedMsg) {
                 const quotedMsg = await msg.getQuotedMessage();
                 const targetId = quotedMsg.author || quotedMsg.from;
