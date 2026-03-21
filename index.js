@@ -52,14 +52,16 @@ let swearStats = safeReadJSON(swearStatsFile);
 function saveSwearStats() { fs.writeFileSync(swearStatsFile, JSON.stringify(swearStats, null, 2)); }
 
 // 🔥 مكسر الأقفال العسكري المطور (يعمل برمجياً لتجاوز حماية السيرفر)
+// 🔥 مكسر الأقفال العسكري (بالمسار الصحيح للـ Volume)
 function unlockChromiumProfile() {
     try {
-        const sessionPath = path.join(dataPath, '.wwebjs_auth', 'session');
+        // تم تصحيح المسار ليتطابق مع إعدادات LocalAuth
+        const sessionPath = path.join(dataPath, 'session'); 
         if (fs.existsSync(sessionPath)) {
             const files = fs.readdirSync(sessionPath);
             let deletedCount = 0;
             for (const file of files) {
-                // تدمير أي ملف يبدأ بكلمة Singleton (وهي ملفات القفل التي تسبب الانهيار)
+                // تدمير أي ملف يبدأ بكلمة Singleton (ملفات القفل)
                 if (file.startsWith('Singleton')) {
                     const filePath = path.join(sessionPath, file);
                     try {
@@ -77,14 +79,18 @@ function unlockChromiumProfile() {
     }
 }
 
+// 🧹 الكاسحة العدوانية (بالمسار الصحيح)
 function clearChromiumCache() {
     try {
-        const basePath = path.join(dataPath, '.wwebjs_auth', 'session', 'Default');
+        // تم تصحيح المسار هنا أيضاً
+        const basePath = path.join(dataPath, 'session', 'Default');
         if (!fs.existsSync(basePath)) return;
         const junkFolders =['Cache', 'Code Cache', 'Media Cache', 'GPUCache', 'VideoDecodeStats', path.join('Service Worker', 'CacheStorage'), path.join('Service Worker', 'ScriptCache')];
         junkFolders.forEach(folder => {
             const targetPath = path.join(basePath, folder);
-            if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { recursive: true, force: true });
+            if (fs.existsSync(targetPath)) {
+                try { fs.rmSync(targetPath, { recursive: true, force: true }); } catch(e){}
+            }
         });
         console.log('🧹 تم تنظيف كاش المتصفح لضمان المزامنة السريعة.');
     } catch (err) {}
