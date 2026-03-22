@@ -1,11 +1,13 @@
 {
+  "name": "dark-fire-bot",
+  "version": "1.0.0",
   "scripts": {
-    "start": "node --max-old-space-size=300 index.js"
+    "start": "node --expose-gc --max-old-space-size=400 index.js"
   },
   "dependencies": {
     "express": "^4.21.1",
-    "puppeteer": "^24.38.0",
+    "puppeteer": "22.6.0",
     "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "github:pedroslopez/whatsapp-web.js#main"
+    "whatsapp-web.js": "^1.26.0"
   }
 }
