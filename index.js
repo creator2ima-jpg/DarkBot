@@ -10,7 +10,7 @@ const { execSync } = require('child_process');
 // =========================================
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => { res.send('البوت يعمل بنجاح! تم إصلاح الصلاحيات والسرعة صاروخية 🚀'); });
+app.get('/', (req, res) => { res.send('البوت يعمل بنجاح! الأقفال مكسورة والسرعة صاروخية والبيانات آمنة 🚀'); });
 app.listen(PORT, () => { console.log(`🌍 خادم الويب يعمل على المنفذ ${PORT}`); });
 
 // =========================================
@@ -225,6 +225,7 @@ client.on('disconnected', async () => {
     console.log('🔄 انقطع الاتصال صراحةً، إعادة التشغيل...');
     try { await client.destroy(); } catch (err) {}
     setTimeout(async () => {
+        unlockChromiumProfile();
         try { await client.initialize(); } catch (err) {}
         isReconnecting = false;
     }, 5000);
@@ -297,9 +298,8 @@ async function restoreMerchantTimers() {
         if (remaining <= 0) {
             try {
                 const chat = await client.getChatById(chatId);
-                // ✅ إصلاح الإدارة
-                let botNumber = client.info && client.info.wid ? client.info.wid.user : "";
-                if (chat.participants.some(p => p.id.user === botNumber && (p.isAdmin || p.isSuperAdmin))) {
+                const botId = client.info && client.info.wid ? client.info.wid.user : "";
+                if (chat.participants.some(p => p.id.user === botId && (p.isAdmin || p.isSuperAdmin))) {
                     await chat.removeParticipants([userId]);
                 }
             } catch (err) {}
@@ -310,13 +310,12 @@ async function restoreMerchantTimers() {
                     try {
                         const chat = await client.getChatById(chatId);
                         const userNumber = userId.split('@')[0];
-                        // ✅ إصلاح الإدارة
-                        let botNumber = client.info && client.info.wid ? client.info.wid.user : "";
-                        if (chat.participants.some(p => p.id.user === botNumber && (p.isAdmin || p.isSuperAdmin))) {
+                        const botId = client.info && client.info.wid ? client.info.wid.user : "";
+                        if (chat.participants.some(p => p.id.user === botId && (p.isAdmin || p.isSuperAdmin))) {
                             await chat.removeParticipants([userId]);
                             await chat.sendMessage(`${botPrefix}🚫 تم طرد (@${userNumber}) لتجاوزه المهلة بدون توثيق.`, { mentions: [userId] });
                         } else {
-                            await chat.sendMessage(`${botPrefix}🚫 العضو (@${userNumber}) لم يوثق نفسه.\n(يرجى طرده، البوت منزوع الصلاحيات!)`, { mentions:[userId] });
+                            await chat.sendMessage(`${botPrefix}🚫 العضو (@${userNumber}) لم يوثق نفسه.\n(يرجى طرده، البوت منزوع الصلاحيات!)`, { mentions: [userId] });
                         }
                     } catch (err) {}
                     delete pendingMerchants[userKey]; delete pendingMerchantsData[userKey]; saveMerchants();
@@ -365,9 +364,8 @@ client.on('group_join', async (notification) => {
             const kickTimer = setTimeout(async () => {
                 if (pendingMerchants[userKey]) {
                     try {
-                        // ✅ إصلاح الإدارة
-                        let botNumber = client.info && client.info.wid ? client.info.wid.user : "";
-                        if (chat.participants.some(p => p.id.user === botNumber && (p.isAdmin || p.isSuperAdmin))) {
+                        const botId = client.info && client.info.wid ? client.info.wid.user : "";
+                        if (chat.participants.some(p => p.id.user === botId && (p.isAdmin || p.isSuperAdmin))) {
                             await chat.removeParticipants([joinedUserId]);
                             await chat.sendMessage(`${botPrefix}🚫 تم طرد (@${userNumber}) لتجاوزه المهلة بدون توثيق.`, { mentions: [joinedUserId] });
                         } else {
@@ -384,6 +382,7 @@ client.on('group_join', async (notification) => {
     } catch (error) {}
 });
 
+// ✅ إصلاح إشعارات المشرفين بمنع السقوط الصامت (Silent Failure)
 client.on('group_admin_changed', async (notification) => {
     try {
         const chatId = notification.chatId;
@@ -391,18 +390,29 @@ client.on('group_admin_changed', async (notification) => {
         if (!settings || !settings.adminNotices || !settings.expireAt || Date.now() > settings.expireAt) return;
 
         const chat = await client.getChatById(chatId);
+        
+        let authorId = notification.author;
         let authorNumber = "مجهول";
-        if (notification.author) authorNumber = notification.author.split('@')[0].replace(/\D/g, "");
+        if (authorId) {
+            authorId = authorId.replace(/:\d+/, ""); 
+            authorNumber = authorId.split('@')[0].replace(/\D/g, "");
+        }
+        
         const dateNow = formatDate(Date.now());
-
         const eventType = notification.action || notification.type;
 
-        for (const targetId of notification.recipientIds) {
+        for (let targetId of notification.recipientIds) {
+            targetId = targetId.replace(/:\d+/, ""); 
             const targetNumber = targetId.split('@')[0].replace(/\D/g, "");
+            
+            // إنشاء مصفوفة آمنة للـ Mentions
+            let safeMentions = [targetId];
+            if (authorId) safeMentions.push(authorId);
+
             if (eventType === 'promote') {
-                await chat.sendMessage(`${botPrefix}🟢 *إشعار إداري*\nتمت ترقية العضو (@${targetNumber}) ليصبح مشرفاً ✅\nبواسطة: (@${authorNumber})\n⏰ الوقت: ${dateNow}`, { mentions: [targetId, notification.author] });
+                await chat.sendMessage(`${botPrefix}🟢 *إشعار إداري*\nتمت ترقية العضو (@${targetNumber}) ليصبح مشرفاً ✅\nبواسطة: (@${authorNumber})\n⏰ الوقت: ${dateNow}`, { mentions: safeMentions });
             } else if (eventType === 'demote') {
-                await chat.sendMessage(`${botPrefix}🔴 *إشعار إداري*\nتم نزع الإشراف من العضو (@${targetNumber}) ❌\nبواسطة: (@${authorNumber})\n⏰ الوقت: ${dateNow}`, { mentions: [targetId, notification.author] });
+                await chat.sendMessage(`${botPrefix}🔴 *إشعار إداري*\nتم نزع الإشراف من العضو (@${targetNumber}) ❌\nبواسطة: (@${authorNumber})\n⏰ الوقت: ${dateNow}`, { mentions: safeMentions });
             }
         }
     } catch (err) { console.error('خطأ في إشعار المشرفين:', err.message); }
@@ -415,17 +425,19 @@ client.on('message_create', async msg => {
     try {
         const chat = await msg.getChat();
 
+        // ✅ استخراج سريع ومحلي للـ ID لتسريع البوت ومنع الـ API Spam
         let rawSenderId = msg.fromMe ? (msg.from || msg.to) : (msg.author || msg.from);
         if (msg.fromMe && client.info && client.info.wid) rawSenderId = client.info.wid._serialized;
 
         let senderId = rawSenderId.replace(/:\d+/, ""); 
         const senderNumber = senderId.split('@')[0].replace(/\D/g, "");
-        
         const text = msg.body.trim();
+        
         const isBotOwner = msg.fromMe || MY_ADMIN_NUMBERS.includes(senderNumber) || MY_ADMIN_NUMBERS.some(admin => senderNumber.endsWith(admin));
 
         if (!chat.isGroup && !isBotOwner) return;
 
+        // أوامر الإذاعة والخاص للمالك
         if (!chat.isGroup && isBotOwner) {
             if (text === '!كل الجروبات' || text === '!الجروبات') {
                 await chat.sendMessage(`${botPrefix}⏳ جاري جمع البيانات من الذاكرة...`);
@@ -501,14 +513,13 @@ client.on('message_create', async msg => {
 
         const chatId = chat.id._serialized;
         
-        // ✅ الحل الجذري والنهائي للإدارة: الاعتماد على رقم الهاتف הנقي (.user) فقط!
+        // ✅ إصلاح الصلاحيات: المقارنة بالرقم النقي لمنع إخفاق الأجهزة المرتبطة
         let botIsAdmin = false;
         let isSenderAdmin = false;
         try {
             let botNumber = "";
             if (client.info && client.info.wid) botNumber = client.info.wid.user;
             
-            // نبحث في الـ participants عن تطابق رقم الهاتف المجرد (دون @c.us أو غيرها)
             botIsAdmin = chat.participants.some(p => p.id.user === botNumber && (p.isAdmin || p.isSuperAdmin));
             isSenderAdmin = chat.participants.some(p => p.id.user === senderNumber && (p.isAdmin || p.isSuperAdmin));
         } catch(e) {}
@@ -605,6 +616,9 @@ client.on('message_create', async msg => {
             }
         }
 
+        // =========================================
+        // 🛑 البوابة الحديدية للاشتراكات
+        // =========================================
         const settings = groupSettings[chatId];
         if (!settings.expireAt) return; 
 
@@ -725,8 +739,15 @@ client.on('message_create', async msg => {
             }
         }
 
+        // =========================================
+        // ⚖️ الحصانة الدبلوماسية
+        // =========================================
         const isImmune = isSenderAdmin; 
+        if (isImmune) return; 
 
+        // =========================================
+        // ⚔️ العقوبات
+        // =========================================
         if (isSpamming(senderId)) {
             if (botIsAdmin) { try { await msg.delete(true); } catch (e) {} }
             if (spamTracker[senderId].count === SPAM_LIMIT + 1) {
@@ -830,6 +851,7 @@ client.on('message_edit', async (msg, newBody, prevBody) => {
 
         const isBotOwner = MY_ADMIN_NUMBERS.includes(senderNumber);
         
+        // الحصانة
         if (msg.fromMe || isSenderAdmin || isBotOwner) return;
 
         let shouldStrikeSwear = (settings.swear === 'all' || ((settings.swear === 'members' || settings.swear === true) && !isSenderAdmin));
