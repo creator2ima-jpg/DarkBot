@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 global.crypto = crypto;
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const fs = require('fs');
 const express = require('express');
@@ -13,16 +13,16 @@ if (!fs.existsSync(dataPath)) {
     fs.mkdirSync(dataPath, { recursive: true });
 }
 
+// ⚠️ تغيير اسم الجلسة إلى v4 لضمان بداية نظيفة وتخطي أي ملفات تالفة سابقة
+const sessionPath = path.join(dataPath, 'session_v4');
+
 // --- 1. الإعدادات الأساسية ---
 const ADMIN_NUMBERS = ['201092996413@s.whatsapp.net']; 
-// ⚠️ تأكد من وضع رقم البوت الجديد هنا (بدون علامة +)
 const BOT_PHONE_NUMBER = '201092996413'; 
 const PROFANITY_LIST = ['عرص', 'خول', 'معرص', 'متناك', 'شرموط', 'منيوك', 'خولات', 'معرصين', 'طيزك'];
 
 let groupSettings = {}; 
 let pendingMerchants = {}; 
-
-// 🔒 قفل الأمان لمنع طلب الكود أكثر من مرة
 let isCodeRequested = false; 
 
 function saveSettings() {
@@ -43,23 +43,21 @@ loadSettings();
 
 // --- 2. دالة التشغيل ---
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState(path.join(dataPath, 'session_v3'));
+    const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
     const sock = makeWASocket({
         auth: state,
-        logger: pino({ level: 'silent' }), // كتم رسائل النظام المزعجة
+        logger: pino({ level: 'silent' }), 
         printQRInTerminal: false, 
-        // التعديل الأول: استخدام البصمة الرسمية للمتصفح لحل مشكلة "تعذر"
-        browser: Browsers.ubuntu('Chrome'), 
+        // استخدام بصمة ماك الأقل عرضة لرسالة "تعذر"
+        browser: ['Mac OS', 'Chrome', '10.15.7'], 
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    // نظام طلب الكود
     if (!sock.authState.creds.registered && !isCodeRequested) {
         isCodeRequested = true; 
         
-        // التعديل الثاني: زيادة المهلة قليلاً لضمان استقرار الاتصال قبل طلب الكود
         setTimeout(async () => {
             try {
                 const code = await sock.requestPairingCode(BOT_PHONE_NUMBER.replace(/[^0-9]/g, ''));
@@ -68,10 +66,10 @@ async function startBot() {
                 console.log(`📱 افتح الواتساب > الأجهزة المرتبطة > ربط باستخدام رقم الهاتف`);
                 console.log(`========================================\n`);
             } catch (err) {
-                console.log('⏳ جاري تهيئة الاتصال... سيتم المحاولة لاحقاً.');
+                console.log('⏳ جاري تهيئة الاتصال لطلب الكود...');
                 isCodeRequested = false; 
             }
-        }, 4000); 
+        }, 3000); 
     }
 
     // --- 3. مراقبة حالة الاتصال ---
@@ -79,22 +77,18 @@ async function startBot() {
         const { connection, lastDisconnect } = update;
 
         if (connection === 'close') {
-            const statusCode = lastDisconnect.error?.output?.statusCode;
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             
             if (shouldReconnect) {
-                // التعديل الثالث: إذا فصل قبل اكتمال الربط، يتم حذف الجلسة لتوليد كود صالح
-                if (!sock.authState.creds.registered) {
-                    console.log('🔄 جاري تنظيف الجلسة المعلقة لتوليد كود جديد وصالح...');
-                    fs.rmSync(path.join(dataPath, 'session_v3'), { recursive: true, force: true });
-                }
-                isCodeRequested = false; 
+                console.log('🔄 انقطع الاتصال مؤقتاً، جاري إعادة المحاولة بهدوء...');
+                // تم إزالة الكود الذي كان يدمر الجلسة، الآن سيحافظ على الكود المعروض لك
                 setTimeout(() => {
                     startBot();
-                }, 8000); 
+                }, 5000); 
             } else {
                 console.log('❌ تم تسجيل الخروج! سيتم حذف الجلسة للبدء من جديد.');
-                fs.rmSync(path.join(dataPath, 'session_v3'), { recursive: true, force: true });
+                fs.rmSync(sessionPath, { recursive: true, force: true });
                 isCodeRequested = false; 
                 setTimeout(() => {
                     startBot();
