@@ -1,896 +1,210 @@
-const express = require('express');
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const pino = require('pino');
 const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
 
-// =========================================
-// 🌐 1. خادم الويب
-// =========================================
-const app = express();
-const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => { res.send('البوت يعمل بنجاح! الرامات محمية والسرعة صاروخية 🚀'); });
-app.listen(PORT, () => { console.log(`🌍 خادم الويب يعمل على المنفذ ${PORT}`); });
+// --- 1. الإعدادات الأساسية ---
+const ADMIN_NUMBERS = ['201092996413@s.whatsapp.net']; // رقم الإدارة الخاص بك (ضع رقمك هنا)
+const BOT_PHONE_NUMBER = '201091885491'; // رقم البوت الذي سيعمل عليه الكود (لإرسال كود الربط)
+const PROFANITY_LIST = ['عرص', 'خول', 'معرص', 'متناك', 'شرموط', 'منيوك', 'خولات', 'معرصين', 'طيزك']; // ضع الكلمات الممنوعة هنا
 
-// =========================================
-// 🗄️ 2. نظام الذاكرة الدائمة (Safe Queued I/O Fix)
-// =========================================
-const dataPath = fs.existsSync('/data') ? '/data' : __dirname;
-const dbFile = path.join(dataPath, 'warnings.json');
-const settingsFile = path.join(dataPath, 'settings.json');
-const merchantsFile = path.join(dataPath, 'merchants.json');
-const swearStatsFile = path.join(dataPath, 'swear_stats.json');
+// قاعدة بيانات بسيطة
+let groupSettings = {}; 
+let pendingMerchants = {}; 
 
-const saveTimeouts = {};
-
-function debouncedSave(filePath, data) {
-    if (saveTimeouts[filePath]) clearTimeout(saveTimeouts[filePath]);
-    saveTimeouts[filePath] = setTimeout(() => {
-        fs.writeFile(filePath, JSON.stringify(data, null, 2), err => {
-            if (err) console.error(`خطأ في حفظ ${path.basename(filePath)}:`, err.message);
-        });
-        delete saveTimeouts[filePath];
-    }, 2000); 
+function saveSettings() {
+    fs.writeFileSync('./settings.json', JSON.stringify(groupSettings));
 }
-
-function safeReadJSON(filePath, defaultValue = {}) {
-    try {
-        if (fs.existsSync(filePath)) {
-            const raw = fs.readFileSync(filePath, 'utf8').trim();
-            if (!raw) return defaultValue;
-            return JSON.parse(raw);
-        }
-    } catch (e) {}
-    fs.writeFileSync(filePath, JSON.stringify(defaultValue, null, 2));
-    return defaultValue;
+function loadSettings() {
+    if (fs.existsSync('./settings.json')) {
+        groupSettings = JSON.parse(fs.readFileSync('./settings.json'));
+    }
 }
+loadSettings();
 
-let userWarnings = safeReadJSON(dbFile);
-function saveWarnings() { debouncedSave(dbFile, userWarnings); }
+// --- 2. دالة تشغيل البوت الأساسية ---
+async function startBot() {
+    const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
 
-let groupSettings = safeReadJSON(settingsFile);
-function saveSettings() { debouncedSave(settingsFile, groupSettings); }
+    const sock = makeWASocket({
+        auth: state,
+        logger: pino({ level: 'silent' }), // إخفاء السجلات المزعجة
+        printQRInTerminal: false, // إيقاف الباركود واستخدام كود الربط
+        browser: ['Ubuntu', 'Chrome', '20.0.04'], // ضروري لعمل كود الربط
+    });
 
-let pendingMerchantsData = safeReadJSON(merchantsFile);
-const pendingMerchants = {};
-function saveMerchants() {
-    const toSave = {};
-    for (const key in pendingMerchants) { toSave[key] = pendingMerchants[key].expireTime; }
-    debouncedSave(merchantsFile, toSave);
-}
+    sock.ev.on('creds.update', saveCreds);
 
-let swearStats = safeReadJSON(swearStatsFile);
-function saveSwearStats() { debouncedSave(swearStatsFile, swearStats); }
-
-// =========================================
-// 🔓 3. كسر الأقفال وتنظيف الكاش (آمن)
-// =========================================
-function unlockChromiumProfile() {
-    try {
-        const sessionPath = path.join(dataPath, 'session');
-        if (fs.existsSync(sessionPath)) {
-            let deletedCount = 0;
-            const files = fs.readdirSync(sessionPath);
-            for (const file of files) {
-                if (file.startsWith('Singleton')) {
-                    const filePath = path.join(sessionPath, file);
-                    try { fs.rmSync(filePath, { force: true, recursive: true }); deletedCount++; } catch (e) {}
-                }
+    // طلب كود الربط إذا لم يكن البوت مسجلاً الدخول مسبقاً
+    if (!sock.authState.creds.registered) {
+        setTimeout(async () => {
+            try {
+                const code = await sock.requestPairingCode(BOT_PHONE_NUMBER);
+                console.log(`\n========================================`);
+                console.log(`🔑 كود الربط الخاص بك هو: ${code}`);
+                console.log(`📱 افتح الواتساب > الأجهزة المرتبطة > ربط باستخدام رقم الهاتف`);
+                console.log(`========================================\n`);
+            } catch (err) {
+                console.log('حدث خطأ أثناء طلب كود الربط:', err.message);
             }
-            if (deletedCount > 0) console.log(`🔓 تم كسر وتدمير (${deletedCount}) قفل وهمي.`);
+        }, 3000); 
+    }
+
+    // --- 3. مراقبة حالة الاتصال ---
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+
+        if (connection === 'close') {
+            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('انقطع الاتصال، جاري إعادة المحاولة...');
+            if (shouldReconnect) startBot(); // إعادة الاتصال تلقائياً
+        } else if (connection === 'open') {
+            console.log('✅ البوت متصل الآن بنجاح ويعمل بكفاءة!');
         }
-    } catch (err) {}
-}
+    });
 
-function clearChromiumCache() {
-    try {
-        const basePath = path.join(dataPath, 'session', 'Default');
-        if (!fs.existsSync(basePath)) return;
-        const junkFolders =['Cache', 'Code Cache', 'Media Cache', 'GPUCache', 'VideoDecodeStats', path.join('Service Worker', 'CacheStorage')];
-        junkFolders.forEach(folder => {
-            const targetPath = path.join(basePath, folder);
-            if (fs.existsSync(targetPath)) { try { fs.rmSync(targetPath, { recursive: true, force: true }); } catch (e) {} }
-        });
-        console.log('🧹 تم تنظيف كاش المتصفح המيت.');
-    } catch (err) {}
-}
+    // --- 4. نظام توثيق التجار (مراقبة دخول الأعضاء) ---
+    sock.ev.on('group-participants.update', async (update) => {
+        const { id: groupId, participants, action } = update;
 
-unlockChromiumProfile();
-clearChromiumCache();
+        if (action === 'add') {
+            for (let user of participants) {
+                await sock.sendMessage(groupId, { 
+                    text: `أهلاً بك @${user.split('@')[0]}\nأمامك 30 دقيقة لإثبات هويتك كتاجر عبر عمل "منشن" لـ 5 تجار في رسالة واحدة، وإلا سيتم إخراجك تلقائياً للحفاظ على جودة المجموعة.`,
+                    mentions: [user] 
+                });
 
-// =========================================
-// 🚫 4. نظام Anti-Spam
-// =========================================
-const spamTracker = {};
-const SPAM_LIMIT = 5;
-const SPAM_WINDOW = 10000;
+                const warningTimer = setTimeout(async () => {
+                    if (pendingMerchants[user] && pendingMerchants[user].groupId === groupId) {
+                        await sock.sendMessage(groupId, { 
+                            text: `⚠️ إنذار أخير @${user.split('@')[0]}! بقي 3 دقائق فقط لعمل منشن لـ 5 تجار.`,
+                            mentions: [user]
+                        });
+                    }
+                }, 27 * 60 * 1000);
 
-function isSpamming(senderId) {
-    const now = Date.now();
-    if (!spamTracker[senderId] || (now - spamTracker[senderId].lastReset > SPAM_WINDOW)) {
-        spamTracker[senderId] = { count: 1, lastReset: now };
-        return false;
-    }
-    spamTracker[senderId].count++;
-    return spamTracker[senderId].count > SPAM_LIMIT;
-}
+                const kickTimer = setTimeout(async () => {
+                    if (pendingMerchants[user] && pendingMerchants[user].groupId === groupId) {
+                        await sock.sendMessage(groupId, { text: `انتهى الوقت. سيتم إخراج الرقم لعدم التوثيق.` });
+                        await sock.groupParticipantsUpdate(groupId, [user], 'remove');
+                        delete pendingMerchants[user];
+                    }
+                }, 30 * 60 * 1000);
 
-setInterval(() => {
-    const now = Date.now();
-    for (const key in spamTracker) {
-        if (now - spamTracker[key].lastReset > SPAM_WINDOW * 2) delete spamTracker[key];
-    }
-}, 10 * 60 * 1000);
+                pendingMerchants[user] = { groupId, warningTimer, kickTimer };
+            }
+        }
+    });
 
-setInterval(() => {
-    let changed = false;
-    for (const key in userWarnings) {
-        if (userWarnings[key] === 0) { delete userWarnings[key]; changed = true; }
-    }
-    if (changed) saveWarnings();
-    if (global.gc) { global.gc(); }
-}, 2 * 60 * 60 * 1000);
+    // --- 5. استقبال الرسائل (الأوامر، الحماية، فحص المنشن) ---
+    sock.ev.on('messages.upsert', async (m) => {
+        const msg = m.messages[0];
+        if (!msg.message || msg.key.fromMe) return;
 
-// =========================================
-// 👑 5. الثوابت، المالكين، والفلاتر
-// =========================================
-const MY_ADMIN_NUMBERS =[
-    "201092996413",
-    "201091885491",
-    "27041768431630"
-];
+        const sender = msg.key.participant || msg.key.remoteJid;
+        const groupId = msg.key.remoteJid;
+        const isGroup = groupId.endsWith('@g.us');
+        const isAdmin = ADMIN_NUMBERS.includes(sender);
+        
+        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+        
+        if (!isGroup) return; 
 
-const botPrefix = "بوت دارك فاير | Dark Fire Bot \n\n";
-const rulesText = `لائحة القوانين:\n1. ممنوع إرسال لينكات 🟥\n2. شتائم = طرد 🟥\n3. ممنوع منشن للكل 🟥\n4. صلِّ على النبي في قلبك كده، واذكر الله.`;
+        if (!groupSettings[groupId]) {
+            groupSettings[groupId] = { linkSystem: 'delete', isActive: true, expireDate: null };
+            saveSettings();
+        }
 
-const GLOBAL_LINK_REGEX = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|([a-zA-Z0-9-]+\.(com|net|org|me|info|link|co|tv|ly)\b)|(wa\.me\/\d+)/i;
-const badWords =['شرموط', 'متناك', 'هنيكك', 'خدك عليه', 'معرص', 'عرص', 'خول', 'علق', 'زاني', 'زانية', 'سكس', 'كسمك', 'كشمك', 'كس', 'كسم امك', 'يكسمك', 'يمتناك', 'العرص', 'يمعرص', 'قحبة', 'متناكين'];
+        // --- أ. التحقق من توثيق التاجر الجديد ---
+        if (pendingMerchants[sender] && pendingMerchants[sender].groupId === groupId) {
+            const mentionedJids = msg.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
+            if (mentionedJids.length >= 5) {
+                clearTimeout(pendingMerchants[sender].warningTimer);
+                clearTimeout(pendingMerchants[sender].kickTimer);
+                delete pendingMerchants[sender];
+                await sock.sendMessage(groupId, { text: `✅ تم التوثيق بنجاح! نورتنا.` }, { quoted: msg });
+            }
+        }
 
-function cleanText(text) {
-    let t = text.toLowerCase().replace(/[\u0617-\u061A\u064B-\u0652\u0640\u200B-\u200D\uFEFF]/g, "");
-    t = t.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
-    return t.replace(/[^a-zA-Z\u0621-\u064A\s]/g, "").replace(/(.)\1+/gu, "$1");
-}
-const cleanedBadWords = badWords.map(word => cleanText(word));
+        // --- ب. نظام الحماية الذاتية (روابط وشتائم) ---
+        const isUrl = text.match(/https?:\/\/[^\s]+/gi);
+        const hasProfanity = PROFANITY_LIST.some(word => text.includes(word));
 
-function containsBadWordSmart(messageText) {
-    const cleanedMessage = cleanText(messageText);
-    const messageWords = cleanedMessage.split(/\s+/);
-    return messageWords.some(userWord => cleanedBadWords.some(badWord => {
-        let strippedWord = userWord.replace(/^(ال|و|ف|ب|ك|ل)+/, '');
-        return userWord === badWord || strippedWord === badWord;
-    }));
-}
+        if ((isUrl && !isAdmin) || (hasProfanity && !isAdmin)) {
+            await sock.sendMessage(groupId, { delete: msg.key });
 
-function formatDate(timestamp) {
-    return new Date(timestamp).toLocaleDateString('ar-EG', {
-        year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
+            if (isUrl && groupSettings[groupId].linkSystem === 'طرد') {
+                await sock.groupParticipantsUpdate(groupId, [sender], 'remove');
+                await sock.sendMessage(groupId, { text: `🚫 تم طرد العضو لإرساله روابط.` });
+            } else if (isUrl) {
+                await sock.sendMessage(groupId, { text: `🚫 يُمنع إرسال الروابط هنا!` });
+            }
+
+            if (hasProfanity) {
+                await sock.sendMessage(groupId, { text: `🚫 يرجى الالتزام بالآداب العامة!` });
+            }
+            return;
+        }
+
+        // --- ج. لوحة تحكم الإدارة ---
+        if (isAdmin && text.startsWith('!')) {
+            const command = text.split(' ')[0];
+            const args = text.replace(command, '').trim();
+
+            switch (command) {
+                case '!نظام':
+                    if (args.includes('الروابط حذف')) {
+                        groupSettings[groupId].linkSystem = 'حذف';
+                        await sock.sendMessage(groupId, { text: '✅ تم تفعيل نظام الروابط: (حذف فقط)' });
+                    } else if (args.includes('الروابط طرد')) {
+                        groupSettings[groupId].linkSystem = 'طرد';
+                        await sock.sendMessage(groupId, { text: '🚨 تم تفعيل نظام الروابط: (طرد مباشر)' });
+                    }
+                    saveSettings();
+                    break;
+
+                case '!تفعيل':
+                    let days = 0;
+                    if (args === '1') days = 5;
+                    else if (args === '2') days = 7;
+                    else if (args === 'الكل') days = 30; 
+
+                    if (days > 0) {
+                        const expire = new Date();
+                        expire.setDate(expire.getDate() + days);
+                        groupSettings[groupId].isActive = true;
+                        groupSettings[groupId].expireDate = expire;
+                        saveSettings();
+                        await sock.sendMessage(groupId, { text: `✅ تم تفعيل البوت في هذه المجموعة لمدة ${days} أيام.` });
+                    }
+                    break;
+
+                case '!اذاعة':
+                    if (!args) {
+                        await sock.sendMessage(groupId, { text: '❌ يرجى كتابة الرسالة بعد الأمر. مثال: !اذاعة عرض خاص' });
+                        return;
+                    }
+                    await sock.sendMessage(groupId, { text: 'جاري الإرسال لكل المجموعات المفعلة...' });
+                    
+                    let delay = 1000;
+                    for (const gid in groupSettings) {
+                        if (groupSettings[gid].isActive) {
+                            setTimeout(async () => {
+                                await sock.sendMessage(gid, { text: `📢 إعلان إداري:\n\n${args}` });
+                            }, delay);
+                            delay += 3000; 
+                        }
+                    }
+                    break;
+
+                case '!فحص':
+                    const status = groupSettings[groupId].isActive ? 'مفعل ✅' : 'منتهي ❌';
+                    const linkSys = groupSettings[groupId].linkSystem;
+                    await sock.sendMessage(groupId, { text: `📊 حالة الجروب:\nالاشتراك: ${status}\nنظام الروابط: ${linkSys}` });
+                    break;
+            }
+        }
     });
 }
 
-// =========================================
-// 🚀 6. إعدادات البوت والاتصال 
-// =========================================
-let isReconnecting = false;
-let isBotReady = false;
-let connectionAttemptTime = Date.now();
-const lidCache = new Map(); // ✅ الكاش السحري للهويات
-
-const client = new Client({
-    authStrategy: new LocalAuth({ dataPath: dataPath }),
-    puppeteer: {
-        headless: true,
-        args:[
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu',
-            '--js-flags="--max-old-space-size=200"',
-            '--disk-cache-size=1',
-            '--disable-application-cache',
-            '--disable-offline-load-stale-cache',
-            '--disable-background-timer-throttling',
-            '--disable-backgrounding-occluded-windows',
-            '--disable-renderer-backgrounding',
-            '--disable-features=site-per-process,Translate,OptimizationHints,MediaRouter',
-            '--renderer-process-limit=1',
-            '--mute-audio',
-            '--blink-settings=imagesEnabled=false' // ✅ تمت استعادته: هذا السطر يمنع انفجار الرامات عند الإقلاع!
-        ]
-    }
-});
-
-client.on('qr', qr => {
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qr)}`;
-    console.log('🔗 افتح هذا الرابط لمسح الـ QR:\n' + qrUrl);
-    try { qrcode.generate(qr, { small: true }); } catch (e) {}
-});
-
-client.on('ready', () => {
-    console.log('✅ البوت جاهز ومستقر ويعمل الآن.');
-    isBotReady = true;
-    restoreMerchantTimers();
-});
-
-client.on('disconnected', async () => {
-    if (isReconnecting) return;
-    isReconnecting = true;
-    isBotReady = false;
-    connectionAttemptTime = Date.now();
-    console.log('🔄 انقطع الاتصال صراحةً، إعادة التشغيل...');
-    try { await client.destroy(); } catch (err) {}
-    setTimeout(async () => {
-        try { await client.initialize(); } catch (err) {}
-        isReconnecting = false;
-    }, 5000);
-});
-
-setInterval(() => {
-    if (!isBotReady && (Date.now() - connectionAttemptTime > 6 * 60 * 1000)) {
-        console.log('🚨 كلب الحراسة: البوت معلق! جاري القتل الإجباري...');
-        process.exit(1);
-    }
-}, 60 * 1000);
-
-setInterval(async () => {
-    const memoryData = process.memoryUsage();
-    const memoryUsageMB = Math.round(memoryData.rss / 1024 / 1024);
-    
-    if (isBotReady && !isReconnecting) {
-        try {
-            const state = await client.getState();
-            if (state !== 'CONNECTED') throw new Error('Not Connected');
-        } catch (error) {
-            console.log('🚨 اكتشاف تجمد صامت! جاري الإنعاش القسري...');
-            isReconnecting = true;
-            isBotReady = false;
-            connectionAttemptTime = Date.now();
-            try {
-                await client.destroy();
-                unlockChromiumProfile();
-                clearChromiumCache();
-                setTimeout(async () => {
-                    try { await client.initialize(); } catch (err) {}
-                    isReconnecting = false;
-                }, 5000);
-            } catch (e) { isReconnecting = false; }
-            return; 
-        }
-    }
-
-    if (memoryUsageMB > 300 && !isReconnecting) {
-        console.log('🚨 تحذير: الرامات ترتفع بسرعة! جاري كبح المتصفح...');
-        isReconnecting = true;
-        isBotReady = false;
-        connectionAttemptTime = Date.now();
-        try {
-            await client.destroy();
-            unlockChromiumProfile();
-            clearChromiumCache();
-            if (global.gc) { global.gc(); }
-            setTimeout(async () => {
-                try { await client.initialize(); } catch (err) {}
-                isReconnecting = false;
-            }, 5000);
-        } catch (e) { isReconnecting = false; }
-    }
-}, 3 * 60 * 1000);
-
-// =========================================
-// 🛡️ 7. نظام توثيق التجار والأحداث
-// =========================================
-async function restoreMerchantTimers() {
-    const now = Date.now();
-    for (const userKey in pendingMerchantsData) {
-        const expireTime = pendingMerchantsData[userKey];
-        const remaining = expireTime - now;
-        const parts = userKey.split('_SPLIT_');
-        const chatId = parts[0], userId = parts[1];
-
-        if (remaining <= 0) {
-            try {
-                const chat = await client.getChatById(chatId);
-                const botId = client.info && client.info.wid ? client.info.wid.user : "";
-                if (chat.participants.some(p => p.id.user === botId && (p.isAdmin || p.isSuperAdmin))) {
-                    await chat.removeParticipants([userId]);
-                }
-            } catch (err) {}
-            delete pendingMerchantsData[userKey];
-        } else {
-            const kickTimer = setTimeout(async () => {
-                if (pendingMerchants[userKey]) {
-                    try {
-                        const chat = await client.getChatById(chatId);
-                        const userNumber = userId.split('@')[0];
-                        const botId = client.info && client.info.wid ? client.info.wid.user : "";
-                        if (chat.participants.some(p => p.id.user === botId && (p.isAdmin || p.isSuperAdmin))) {
-                            await chat.removeParticipants([userId]);
-                            await chat.sendMessage(`${botPrefix}🚫 تم طرد (@${userNumber}) لتجاوزه المهلة بدون توثيق.`, { mentions: [userId] });
-                        } else {
-                            await chat.sendMessage(`${botPrefix}🚫 العضو (@${userNumber}) لم يوثق نفسه.\n(يرجى طرده، البوت منزوع الصلاحيات!)`, { mentions: [userId] });
-                        }
-                    } catch (err) {}
-                    delete pendingMerchants[userKey]; delete pendingMerchantsData[userKey]; saveMerchants();
-                }
-            }, remaining);
-
-            const warningDelay = remaining - (3 * 60 * 1000);
-            let warningTimer = null;
-            if (warningDelay > 0) {
-                warningTimer = setTimeout(async () => {
-                    if (pendingMerchants[userKey]) {
-                        try {
-                            const chat = await client.getChatById(chatId);
-                            await chat.sendMessage(`${botPrefix}⚠️ تنبيه أخير (@${userId.split('@')[0]})!\nمتبقي 3 دقائق فقط لعمل منشن لـ 5 تجار!`, { mentions: [userId] });
-                        } catch (err) {}
-                    }
-                }, warningDelay);
-            }
-            pendingMerchants[userKey] = { warningTimer, kickTimer, expireTime };
-        }
-    }
-    saveMerchants();
-}
-
-client.on('group_join', async (notification) => {
-    try {
-        const chatId = notification.chatId;
-        const settings = groupSettings[chatId];
-        if (!settings || !settings.merchant || !settings.expireAt || Date.now() > settings.expireAt) return;
-
-        for (const joinedUserId of notification.recipientIds) {
-            const userNumber = joinedUserId.split('@')[0];
-            if (MY_ADMIN_NUMBERS.includes(userNumber)) continue;
-
-            const chat = await client.getChatById(chatId);
-            const welcomeMsg = `${botPrefix}أهلاً بك (@${userNumber}) في جروب التجار! 👋\n\nأمامك (30 دقيقة) لإثبات أنك تاجر ولست زبوناً.\nقم بإرسال رسالة تعمل فيها (منشن @) لـ 5 تجار مختلفين كضمان لك.\n⏳ إذا لم تفعل ذلك، سيُطردك البوت تلقائياً.\n\n${rulesText}`;
-            await chat.sendMessage(welcomeMsg, { mentions: [joinedUserId] });
-
-            const userKey = `${chatId}_SPLIT_${joinedUserId}`;
-            const expireTime = Date.now() + (30 * 60 * 1000);
-
-            const warningTimer = setTimeout(async () => {
-                if (pendingMerchants[userKey]) await chat.sendMessage(`${botPrefix}⚠️ تنبيه أخير (@${userNumber})!\nمتبقي 3 دقائق لعمل منشن لـ 5 تجار!`, { mentions: [joinedUserId] });
-            }, 27 * 60 * 1000);
-
-            const kickTimer = setTimeout(async () => {
-                if (pendingMerchants[userKey]) {
-                    try {
-                        const botId = client.info && client.info.wid ? client.info.wid.user : "";
-                        if (chat.participants.some(p => p.id.user === botId && (p.isAdmin || p.isSuperAdmin))) {
-                            await chat.removeParticipants([joinedUserId]);
-                            await chat.sendMessage(`${botPrefix}🚫 تم طرد (@${userNumber}) لتجاوزه المهلة بدون توثيق.`, { mentions: [joinedUserId] });
-                        } else {
-                            await chat.sendMessage(`${botPrefix}🚫 العضو (@${userNumber}) لم يوثق نفسه.\n(يرجى طرده، البوت منزوع الصلاحيات!)`, { mentions: [joinedUserId] });
-                        }
-                    } catch (err) {}
-                    delete pendingMerchants[userKey]; delete pendingMerchantsData[userKey]; saveMerchants();
-                }
-            }, 30 * 60 * 1000);
-
-            pendingMerchants[userKey] = { warningTimer, kickTimer, expireTime };
-            pendingMerchantsData[userKey] = expireTime; saveMerchants();
-        }
-    } catch (error) {}
-});
-
-client.on('group_admin_changed', async (notification) => {
-    try {
-        const chatId = notification.chatId;
-        const settings = groupSettings[chatId];
-        if (!settings || !settings.adminNotices || !settings.expireAt || Date.now() > settings.expireAt) return;
-
-        const chat = await client.getChatById(chatId);
-        let authorNumber = "مجهول";
-        let authorId = notification.author;
-        if (authorId) authorNumber = authorId.split('@')[0].replace(/\D/g, "");
-        const dateNow = formatDate(Date.now());
-
-        const eventType = notification.action || notification.type;
-
-        for (const targetId of notification.recipientIds) {
-            const targetNumber = targetId.split('@')[0].replace(/\D/g, "");
-            
-            let safeMentions = [targetId];
-            if (authorId) safeMentions.push(authorId);
-
-            if (eventType === 'promote') {
-                await chat.sendMessage(`${botPrefix}🟢 *إشعار إداري*\nتمت ترقية العضو (@${targetNumber}) ليصبح مشرفاً ✅\nبواسطة: (@${authorNumber})\n⏰ الوقت: ${dateNow}`, { mentions: safeMentions });
-            } else if (eventType === 'demote') {
-                await chat.sendMessage(`${botPrefix}🔴 *إشعار إداري*\nتم نزع الإشراف من العضو (@${targetNumber}) ❌\nبواسطة: (@${authorNumber})\n⏰ الوقت: ${dateNow}`, { mentions: safeMentions });
-            }
-        }
-    } catch (err) { console.error('خطأ في إشعار المشرفين:', err.message); }
-});
-
-// =========================================
-// 🕵️‍♂️ 8. المعالج الأساسي للرسائل (The Master Handler)
-// =========================================
-client.on('message_create', async msg => {
-    try {
-        const chat = await msg.getChat();
-
-        let rawSenderId = msg.fromMe ? (msg.from || msg.to) : (msg.author || msg.from);
-        if (msg.fromMe && client.info && client.info.wid) rawSenderId = client.info.wid._serialized;
-
-        let senderId = rawSenderId.replace(/:\d+/, ""); 
-        let senderNumber = senderId.split('@')[0].replace(/\D/g, "");
-
-        // ✅ كاش الهويات السحري: نترجم الـ @lid مرة واحدة فقط لتجنب انهيار الرامات والـ API
-        if (senderId.includes('@lid') && chat.isGroup) {
-            if (lidCache.has(senderId)) {
-                senderNumber = lidCache.get(senderId);
-                senderId = `${senderNumber}@c.us`;
-            } else {
-                try {
-                    const contact = await msg.getContact();
-                    if (contact && contact.number) {
-                        senderNumber = contact.number.replace(/\D/g, "");
-                        senderId = `${senderNumber}@c.us`;
-                        lidCache.set(rawSenderId.replace(/:\d+/, ""), senderNumber); 
-                    }
-                } catch(e) {}
-            }
-        }
-
-        const text = msg.body.trim();
-        const isBotOwner = msg.fromMe || MY_ADMIN_NUMBERS.includes(senderNumber) || MY_ADMIN_NUMBERS.some(admin => senderNumber.endsWith(admin));
-
-        if (!chat.isGroup && !isBotOwner) return;
-
-        // أوامر الإذاعة والخاص للمالك
-        if (!chat.isGroup && isBotOwner) {
-            if (text === '!كل الجروبات' || text === '!الجروبات') {
-                await chat.sendMessage(`${botPrefix}⏳ جاري جمع البيانات من الذاكرة...`);
-                const now = Date.now();
-                let report = `${botPrefix}📋 *تقرير الجروبات المسجلة:*\n\n`;
-                let active = 0, expired = 0;
-                let allChats =[];
-                try { allChats = await client.getChats(); } catch(e) {}
-
-                for (const gId in groupSettings) {
-                    const gs = groupSettings[gId];
-                    if (!gs.expireAt) continue;
-                    let groupName = "غير معروف";
-                    const targetChat = allChats.find(c => c.id._serialized === gId);
-                    if (targetChat && targetChat.name) groupName = targetChat.name;
-                    
-                    if (gs.expireAt > now) {
-                        active++;
-                        const dLeft = Math.ceil((gs.expireAt - now) / (1000 * 60 * 60 * 24));
-                        report += `🟢 *الاسم:* ${groupName}\n🆔 *الآيدي:* ${gId}\n⏳ *الحالة:* مفعل (باقي ${dLeft} يوم)\n\n`;
-                    } else {
-                        expired++;
-                        report += `🔴 *الاسم:* ${groupName}\n🆔 *الآيدي:* ${gId}\n❌ *الحالة:* منتهي\n\n`;
-                    }
-                }
-                report += `━━━━━━━━━━━━━━\n🟢 مفعل: ${active} | 🔴 منتهي: ${expired}`;
-                await chat.sendMessage(report);
-                return;
-            }
-
-            if (text.startsWith('!اذاعة')) {
-                const isGeneralBroadcast = text.startsWith('!اذاعة عامة');
-                const broadcastText = text.replace(isGeneralBroadcast ? '!اذاعة عامة' : '!اذاعة', '').trim();
-                
-                if (!broadcastText && !msg.hasMedia) {
-                    await chat.sendMessage(`${botPrefix}⚠️ خطأ! يرجى كتابة الرسالة أو إرفاق صورة/فيديو مع الأمر.`);
-                    return;
-                }
-                await chat.sendMessage(`${botPrefix}⏳ جاري تجهيز الإذاعة... سيتم الإرسال ببطء.`);
-                
-                let targetGroups = []; let allChats =[];
-                try { allChats = await client.getChats(); } catch(e) {}
-
-                if (isGeneralBroadcast) { targetGroups = allChats.filter(c => c.isGroup).map(c => c.id._serialized); } 
-                else { const now = Date.now(); for (const gId in groupSettings) { if (groupSettings[gId].expireAt && groupSettings[gId].expireAt > now) targetGroups.push(gId); } }
-
-                targetGroups = [...new Set(targetGroups)];
-                if (targetGroups.length === 0) { await chat.sendMessage(`${botPrefix}❌ لم يتم العثور على جروبات.`); return; }
-
-                let successCount = 0, failCount = 0;
-                let media = null;
-                if (msg.hasMedia) { try { media = await msg.downloadMedia(); } catch (e) {} }
-
-                const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-                
-                (async () => {
-                    for (const gId of targetGroups) {
-                        try {
-                            const targetChat = await client.getChatById(gId);
-                            if (media) { await targetChat.sendMessage(media, { caption: broadcastText }); } else { await targetChat.sendMessage(broadcastText); }
-                            successCount++;
-                            await sleep(Math.floor(Math.random() * (7000 - 3000 + 1)) + 3000);
-                        } catch (err) { failCount++; }
-                    }
-                    try { await chat.sendMessage(`${botPrefix}📢 *تم الانتهاء من الإذاعة!*\nنجح: ${successCount} | فشل: ${failCount}`); } catch(e) {}
-                })();
-                return;
-            }
-            return; 
-        }
-
-        if (!chat.isGroup) return;
-
-        const chatId = chat.id._serialized;
-        let botIsAdmin = false;
-        let isSenderAdmin = false;
-        try {
-            const botId = client.info && client.info.wid ? client.info.wid.user : "";
-            // ✅ المقارنة الصارمة والصحيحة لتجنب المشاكل 
-            botIsAdmin = chat.participants.some(p => p.id.user === botId && (p.isAdmin || p.isSuperAdmin));
-            isSenderAdmin = chat.participants.some(p => p.id.user === senderNumber && (p.isAdmin || p.isSuperAdmin));
-        } catch(e) {}
-
-        if (!groupSettings[chatId]) {
-            groupSettings[chatId] = { links: false, swear: false, merchant: false, stickers: false, antiMention: false, linkAction: 'kick', expireAt: null, expiredNotified: false, antiBotAbuse: false, adminKickCmd: false, adminNotices: false };
-        }
-
-        // =========================================
-        // 🌟 الأوامر المتاحة للجميع (أمر الصلاحيات هنا ليعمل مع المالك والمشرف)
-        // =========================================
-        if (text === '!صلاحياتي') {
-            await chat.sendMessage(
-                `${botPrefix}🔍 *كشف الصلاحيات:*\n\n` +
-                `👤 *رقمك:* ${senderNumber}\n` +
-                `👑 *المالك (المدير العام)؟* ${isBotOwner ? 'نعم ✅' : 'لا ❌'}\n` +
-                `🛡️ *مشرف (أدمن)؟* ${isSenderAdmin ? 'نعم ✅' : 'لا ❌'}\n` +
-                `🤖 *هل البوت مشرف حالياً؟* ${botIsAdmin ? 'نعم ✅' : 'لا ❌'}`
-            );
-            return;
-        }
-
-        // أوامر المالك الخاصة بالجروب
-        if (isBotOwner) {
-            const hasActiveSub = groupSettings[chatId].expireAt && Date.now() < groupSettings[chatId].expireAt;
-            const featureCmds =['!تفعيل الروابط للاعضاء', '!تفعيل الروابط للكل', '!تفعيل الشتائم للاعضاء', '!تفعيل الشتائم للكل', '!تفعيل حماية البوت', '!تفعيل امر الطرد', '!تفعيل اشعارات المشرفين', '!تفعيل التجار', '!تفعيل الملصقات', '!تفعيل المنشن للاعضاء', '!تفعيل المنشن للكل'];
-            
-            if (featureCmds.includes(text) && !hasActiveSub) {
-                await chat.sendMessage(`${botPrefix}⚠️ عذراً يا مديري، لا يمكنك تفعيل ميزات فرعية لأن الجروب *ليس لديه باقة اشتراك نشطة*.\nقم أولاً بكتابة (مثلاً: !تفعيل 1) لبدء باقة.`);
-                return;
-            }
-
-            if (text === '!تفعيل الروابط للاعضاء') { groupSettings[chatId].links = 'members'; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم منع الروابط للأعضاء.`); return; }
-            if (text === '!تفعيل الروابط للكل') { groupSettings[chatId].links = 'all'; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم منع الروابط للجميع.`); return; }
-            if (text === '!ايقاف الروابط') { groupSettings[chatId].links = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف مكافحة الروابط.`); return; }
-            if (text === '!تفعيل الشتائم للاعضاء') { groupSettings[chatId].swear = 'members'; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تفعيل فلتر الشتائم للأعضاء.`); return; }
-            if (text === '!تفعيل الشتائم للكل') { groupSettings[chatId].swear = 'all'; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تفعيل فلتر الشتائم للجميع.`); return; }
-            if (text === '!ايقاف الشتائم') { groupSettings[chatId].swear = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف فلتر الشتائم.`); return; }
-            if (text === '!تفعيل حماية البوت') { groupSettings[chatId].antiBotAbuse = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تفعيل طرد من يسب البوت.`); return; }
-            if (text === '!ايقاف حماية البوت') { groupSettings[chatId].antiBotAbuse = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف حماية البوت.`); return; }
-            if (text === '!تفعيل امر الطرد') { groupSettings[chatId].adminKickCmd = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تفعيل أمر (!طرد).`); return; }
-            if (text === '!ايقاف امر الطرد') { groupSettings[chatId].adminKickCmd = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف أمر (!طرد).`); return; }
-            if (text === '!تفعيل اشعارات المشرفين') { groupSettings[chatId].adminNotices = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تفعيل إشعارات المشرفين.`); return; }
-            if (text === '!ايقاف اشعارات المشرفين') { groupSettings[chatId].adminNotices = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف إشعارات المشرفين.`); return; }
-            if (text === '!تفعيل التجار') { groupSettings[chatId].merchant = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تشغيل نظام توثيق التجار.`); return; }
-            if (text === '!ايقاف التجار') { groupSettings[chatId].merchant = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف توثيق التجار.`); return; }
-            if (text === '!تفعيل الملصقات') { groupSettings[chatId].stickers = true; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم تشغيل صانع الملصقات.`); return; }
-            if (text === '!ايقاف الملصقات') { groupSettings[chatId].stickers = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف صانع الملصقات.`); return; }
-            if (text === '!تفعيل المنشن للاعضاء') { groupSettings[chatId].antiMention = 'members'; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم منع المنشن للأعضاء.`); return; }
-            if (text === '!تفعيل المنشن للكل') { groupSettings[chatId].antiMention = 'all'; saveSettings(); await chat.sendMessage(`${botPrefix}✅ تم منع المنشن للجميع.`); return; }
-            if (text === '!ايقاف المنشن') { groupSettings[chatId].antiMention = false; saveSettings(); await chat.sendMessage(`${botPrefix}🛑 تم إيقاف منع المنشن.`); return; }
-            if (text === '!نظام الروابط طرد') { groupSettings[chatId].linkAction = 'kick'; saveSettings(); await chat.sendMessage(`${botPrefix}⚙️ نظام الروابط: طرد.`); return; }
-            if (text === '!نظام الروابط حذف') { groupSettings[chatId].linkAction = 'deleteOnly'; saveSettings(); await chat.sendMessage(`${botPrefix}⚙️ نظام الروابط: حذف فقط.`); return; }
-
-            if (text === '!تفعيل الكل') {
-                const newExpireAt = Date.now() + (3650 * 24 * 60 * 60 * 1000);
-                groupSettings[chatId].expireAt = newExpireAt;
-                groupSettings[chatId].links = 'members'; groupSettings[chatId].swear = 'members';
-                groupSettings[chatId].merchant = true; groupSettings[chatId].stickers = true;
-                groupSettings[chatId].antiMention = 'members'; groupSettings[chatId].expiredNotified = false;
-                groupSettings[chatId].antiBotAbuse = true; groupSettings[chatId].adminKickCmd = true; groupSettings[chatId].adminNotices = true;
-                saveSettings();
-                await chat.sendMessage(`${botPrefix}✅🔥 تم تفعيل **جميع الميزات** كباقة مدى الحياة!`); return;
-            }
-
-            if (text.startsWith('!تفعيل ')) {
-                const parts = text.split(' ');
-                const packageType = parts[1];
-                let daysToAdd = 0; let packageName = "";
-
-                if (packageType === '1') { daysToAdd = 5; packageName = "الفترة التجريبية (5 أيام)"; }
-                else if (packageType === '2') { daysToAdd = 7; packageName = "باقة الأسبوع (7 أيام)"; }
-                else if (packageType === '3') { daysToAdd = 30; packageName = "باقة الشهر (30 يوم)"; }
-                else { return; } 
-
-                const newExpireAt = Date.now() + (daysToAdd * 24 * 60 * 60 * 1000);
-                groupSettings[chatId].expireAt = newExpireAt; groupSettings[chatId].expiredNotified = false;
-                groupSettings[chatId].links = 'members'; groupSettings[chatId].swear = 'members';
-                groupSettings[chatId].merchant = true; groupSettings[chatId].stickers = true;
-                groupSettings[chatId].antiMention = 'members'; 
-                groupSettings[chatId].antiBotAbuse = true; groupSettings[chatId].adminKickCmd = true; groupSettings[chatId].adminNotices = true;
-                saveSettings();
-                await chat.sendMessage(`✅ *تم تفعيل البوت!*\n📦 *الباقة:* ${packageName}\n🛑 *ينتهي:* ${formatDate(newExpireAt)}`); return;
-            }
-
-            if (text === '!ايقاف الكل' || text === '!الغاء الاشتراك' || text === '!ايقاف الاشتراك') {
-                groupSettings[chatId].expireAt = Date.now() - 1000; groupSettings[chatId].expiredNotified = true; 
-                groupSettings[chatId].links = false; groupSettings[chatId].swear = false;
-                groupSettings[chatId].merchant = false; groupSettings[chatId].stickers = false;
-                groupSettings[chatId].antiMention = false; groupSettings[chatId].antiBotAbuse = false; groupSettings[chatId].adminKickCmd = false; groupSettings[chatId].adminNotices = false;
-                saveSettings();
-                await chat.sendMessage(`${botPrefix}🛑 تم إيقاف جميع الميزات وإلغاء الاشتراك بنجاح.`); return;
-            }
-
-            if (text === '!فحص') {
-                let subStatus = "منتهي ❌";
-                if (groupSettings[chatId].expireAt && groupSettings[chatId].expireAt > Date.now()) {
-                    const daysLeft = Math.ceil((groupSettings[chatId].expireAt - Date.now()) / (1000 * 60 * 60 * 24));
-                    subStatus = `مفعل (${daysLeft} يوم متبقي)\nينتهي: ${formatDate(groupSettings[chatId].expireAt)}`;
-                }
-                const linkSys = groupSettings[chatId].linkAction === 'deleteOnly' ? 'حذف فقط' : 'طرد';
-                const formatStatus = (val) => val === 'all' ? '✅ للكل' : (val === 'members' || val === true ? '✅ للاعضاء' : '❌');
-                
-                await chat.sendMessage(`${botPrefix}📊 تقرير شامل للجروب:\n\n*الاشتراك:* ${subStatus}\n*نظام الروابط:* ${linkSys}\n\n*الميزات النشطة:*\nالروابط: ${formatStatus(groupSettings[chatId].links)}\nالشتائم: ${formatStatus(groupSettings[chatId].swear)}\nالمنشن: ${formatStatus(groupSettings[chatId].antiMention)}\nالتجار: ${groupSettings[chatId].merchant ? '✅' : '❌'} | الملصقات: ${groupSettings[chatId].stickers ? '✅' : '❌'}\nحماية البوت: ${groupSettings[chatId].antiBotAbuse ? '✅' : '❌'} | أمر الطرد: ${groupSettings[chatId].adminKickCmd ? '✅' : '❌'} | إشعارات المشرفين: ${groupSettings[chatId].adminNotices ? '✅' : '❌'}`); return;
-            }
-        }
-
-        const settings = groupSettings[chatId];
-        if (!settings.expireAt) return; 
-
-        if (Date.now() > settings.expireAt) {
-            if (!settings.expiredNotified) {
-                groupSettings[chatId].expiredNotified = true; saveSettings(); 
-                try { await chat.sendMessage(`⚠️ انتهى اشتراك البوت في الجروب. يرجى التجديد.`); } catch (e) {}
-            }
-            return; 
-        }
-
-        // =========================================
-        // 🌟 باقي أوامر الأعضاء
-        // =========================================
-        if (text === '!قوانين') { await chat.sendMessage(`${botPrefix}${rulesText}`); return; }
-        
-        const isolatedUserKey = `${chatId}_${senderId}`; 
-        
-        if (text === '!انذاراتي') {
-            const count = userWarnings[isolatedUserKey] || 0;
-            const max = settings.linkAction === 'deleteOnly' ? 'غير محدود (حذف فقط)' : '3';
-            await chat.sendMessage(`${botPrefix}👤 أهلاً بك (@${senderNumber})\n⚠️ إنذاراتك في الجروب: ${count} / ${max}`, { mentions:[senderId] }); return;
-        }
-
-        if (text === '!قائمة الشتائم') {
-            let leaderboard =[];
-            for (const key in swearStats) {
-                if (key.startsWith(chatId)) { 
-                    const uId = key.split('_')[1];
-                    leaderboard.push({ id: uId, count: swearStats[key] });
-                }
-            }
-            if (leaderboard.length === 0) {
-                await chat.sendMessage(`${botPrefix}📜 الجروب نظيف! لم يقم أحد بالسب حتى الآن.`);
-                return;
-            }
-            leaderboard.sort((a, b) => b.count - a.count); 
-            let msgText = `${botPrefix}📜 *قائمة أكثر الأعضاء مخالفة (الشتائم):*\n\n`;
-            let mentionsList =[];
-            for (let i = 0; i < Math.min(leaderboard.length, 10); i++) { 
-                msgText += `${i + 1}. العضو (@${leaderboard[i].id.split('@')[0]}) : ${leaderboard[i].count} مرة\n`;
-                if(leaderboard[i].id.includes('@c.us')) mentionsList.push(leaderboard[i].id);
-            }
-            await chat.sendMessage(msgText, { mentions: mentionsList });
-            return;
-        }
-
-        if (text === '!ملصق' && settings.stickers) {
-            try {
-                let targetMsg = msg.hasQuotedMsg ? await msg.getQuotedMessage() : msg;
-                if (targetMsg.hasMedia) {
-                    const media = await targetMsg.downloadMedia();
-                    if (media && (media.mimetype === 'image/jpeg' || media.mimetype === 'image/png' || media.mimetype === 'image/webp')) {
-                        await chat.sendMessage(media, { sendMediaAsSticker: true, stickerName: 'دارك فاير' });
-                    }
-                }
-            } catch (error) {}
-            return;
-        }
-
-        if (settings.merchant) {
-            const userKey = `${chatId}_SPLIT_${senderId}`;
-            if (pendingMerchants[userKey]) {
-                const mentions = await msg.getMentions();
-                if (mentions && mentions.length > 0) {
-                    const uniqueMentions =[...new Set(mentions.map(m => m.id._serialized))];
-                    if (uniqueMentions.length >= 5) {
-                        clearTimeout(pendingMerchants[userKey].warningTimer); clearTimeout(pendingMerchants[userKey].kickTimer);
-                        delete pendingMerchants[userKey]; delete pendingMerchantsData[userKey]; saveMerchants();
-                        await chat.sendMessage(`${botPrefix}✅ تم توثيقك كتاجر معتمد.`);
-                    }
-                }
-            }
-        }
-
-        if (settings.adminKickCmd && text === '!طرد') {
-            if (!isSenderAdmin) {
-                await msg.reply(`${botPrefix}⚠️ عذراً، يجب أن تكون (مشرفاً) لتتمكن من الطرد.`);
-                return;
-            }
-            if (msg.hasQuotedMsg) {
-                const quotedMsg = await msg.getQuotedMessage();
-                let targetId = quotedMsg.author || quotedMsg.from;
-                
-                // ✅ ترجمة הـ @lid للهدف المطرود لتجنب فشل دالة الإزالة
-                if(targetId.includes('@lid')) {
-                    try {
-                        const tContact = await quotedMsg.getContact();
-                        if(tContact && tContact.number) targetId = `${tContact.number.replace(/\D/g, "")}@c.us`;
-                    } catch(e) {}
-                } else if (targetId.includes(':')) {
-                    targetId = targetId.split(':')[0] + '@c.us';
-                }
-
-                if (botIsAdmin) {
-                    try {
-                        await chat.removeParticipants([targetId]);
-                        await chat.sendMessage(`${botPrefix}✅ تم تنفيذ الطرد بنجاح بواسطة (@${senderNumber}).`, { mentions:[senderId] });
-                    } catch (e) {
-                         await msg.reply(`${botPrefix}⚠️ فشل الطرد. قد يكون العضو مشرفاً أو غير موجود.`);
-                    }
-                } else {
-                    await msg.reply(`${botPrefix}⚠️ لا أمتلك صلاحية الإشراف للطرد.`);
-                }
-            } else {
-                await msg.reply(`${botPrefix}⚠️ قم بالرد (Reply) على رسالة الشخص واكتب !طرد`);
-            }
-            return;
-        }
-
-        if (settings.antiBotAbuse && msg.hasQuotedMsg) {
-            const quotedMsg = await msg.getQuotedMessage();
-            let botIdStr = "";
-            try { botIdStr = client.info.wid.user; } catch(e){}
-            
-            let quotedSenderNumber = "";
-            let qRaw = quotedMsg.author || quotedMsg.from;
-            if (qRaw) quotedSenderNumber = qRaw.split('@')[0].replace(/\D/g, "");
-
-            if (botIdStr && (quotedMsg.fromMe || quotedSenderNumber === botIdStr) && containsBadWordSmart(msg.body)) {
-                if (botIsAdmin) {
-                    try {
-                        await msg.delete(true);
-                        await chat.removeParticipants([senderId]);
-                        await chat.sendMessage(`${botPrefix}🚫 تم طرد (@${senderNumber}) فوراً بسبب التعدي على النظام.`, { mentions:[senderId] });
-                    } catch (e) {}
-                } else {
-                    await chat.sendMessage(`${botPrefix}⚠️ العضو (@${senderNumber}) يسب البوت! يرجى طرده.`, { mentions:[senderId] });
-                }
-                return; 
-            }
-        }
-
-        const isImmune = isSenderAdmin; 
-
-        if (isSpamming(senderId)) {
-            if (botIsAdmin) { try { await msg.delete(true); } catch (e) {} }
-            if (spamTracker[senderId].count === SPAM_LIMIT + 1) {
-                await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nالرجاء التوقف عن الإرسال المزعج (Spam).`, { mentions:[senderId] });
-            }
-            return; 
-        }
-
-        if (settings.antiMention) {
-            const hasAllTag = text.includes('@الكل') || text.includes('@all') || text.includes('@everyone');
-            if (hasAllTag) {
-                let shouldStrike = false; let targetString = '';
-                if (settings.antiMention === 'all') { shouldStrike = true; targetString = 'نهائياً لأي شخص'; } 
-                else if ((settings.antiMention === 'members' || settings.antiMention === true) && !isImmune) { shouldStrike = true; targetString = 'للأعضاء'; }
-
-                if (shouldStrike) {
-                    let deleted = false;
-                    if (botIsAdmin) { try { await msg.delete(true); deleted = true; } catch (error) {} }
-                    if(deleted) { await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع منشن (الكل) ${targetString}.`, { mentions:[senderId] }); } 
-                    else { await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع منشن (الكل).\n(يرجى رفع البوت مشرف ليحذف)`, { mentions:[senderId] }); }
-                    return; 
-                }
-            }
-        }
-
-        if (settings.swear) {
-            let shouldStrike = false;
-            if (settings.swear === 'all') shouldStrike = true;
-            else if ((settings.swear === 'members' || settings.swear === true) && !isImmune) shouldStrike = true;
-
-            if (shouldStrike && containsBadWordSmart(msg.body)) {
-                let deleted = false;
-                if (botIsAdmin) { try { await msg.delete(true); deleted = true;} catch (error) {} }
-                
-                swearStats[isolatedUserKey] = (swearStats[isolatedUserKey] || 0) + 1; saveSwearStats();
-
-                if(deleted){
-                     await chat.sendMessage(`${botPrefix}⚠️ ثكلتك أمك يا (@${senderNumber})!\nقال رسول الله ﷺ: «لَيْسَ المُؤْمِنُ بِالطَّعَّانِ...»`, { mentions:[senderId] });
-                } else {
-                     await chat.sendMessage(`${botPrefix}⚠️ الشتائم ممنوعة يا (@${senderNumber})!`, { mentions:[senderId] });
-                }
-                return;
-            }
-        }
-
-        if (settings.links && GLOBAL_LINK_REGEX.test(msg.body)) {
-            let shouldStrike = false;
-            if (settings.links === 'all') shouldStrike = true;
-            else if ((settings.links === 'members' || settings.links === true) && !isImmune) shouldStrike = true;
-
-            if (shouldStrike) {
-                let deleted = false;
-                if (botIsAdmin) { try { await msg.delete(true); deleted = true; } catch (error) {} }
-                
-                if (settings.linkAction === 'deleteOnly') {
-                    if(deleted){ await chat.sendMessage(`${botPrefix}⚠️ يُمنع إرسال الروابط يا (@${senderNumber})! تم حذف رسالتك.`, { mentions:[senderId] }); } 
-                    else { await chat.sendMessage(`${botPrefix}⚠️ يُمنع إرسال الروابط يا (@${senderNumber})!`, { mentions:[senderId] }); }
-                } else {
-                    userWarnings[isolatedUserKey] = (userWarnings[isolatedUserKey] || 0) + 1; saveWarnings();
-                    const warningsCount = userWarnings[isolatedUserKey];
-
-                    if (warningsCount < 3) {
-                        if(deleted){ await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nيُمنع الروابط.\nإنذار ${warningsCount} من 3.`, { mentions:[senderId] }); } 
-                        else { await chat.sendMessage(`${botPrefix}⚠️ تحذير (@${senderNumber})!\nإنذار ${warningsCount} من 3.`, { mentions:[senderId] }); }
-                    } else {
-                        let isKicked = false;
-                        if (botIsAdmin) { try { await chat.removeParticipants([senderId]); isKicked = true; userWarnings[isolatedUserKey] = 0; saveWarnings(); } catch (error) {} }
-                        
-                        if (isKicked) { await chat.sendMessage(`${botPrefix}🚫 تم طرد (@${senderNumber}) لتجاوزه 3 إنذارات للروابط.`, { mentions:[senderId] }); } 
-                        else { await chat.sendMessage(`${botPrefix}🚫 العضو (@${senderNumber}) تجاوز 3 إنذارات للروابط!`, { mentions:[senderId] }); }
-                    }
-                }
-            }
-        }
-
-    } catch (err) {}
-});
-
-// =========================================
-// 🕵️‍♂️ 11. نظام مراقبة الرسائل المعدلة (سد الثغرة)
-// =========================================
-client.on('message_edit', async (msg, newBody, prevBody) => {
-    try {
-        const chat = await msg.getChat();
-        if (!chat.isGroup) return;
-
-        const chatId = chat.id._serialized;
-        const settings = groupSettings[chatId];
-        if (!settings || !settings.expireAt || Date.now() > settings.expireAt) return;
-
-        let rawSenderId = msg.author || msg.from;
-        let senderId = rawSenderId.replace(/:\d+/, "");
-        
-        // Cache Lookup للرسائل المعدلة لتوفير الـ API Calls
-        if (senderId.includes('@lid')) {
-            if (lidCache.has(senderId)) senderId = `${lidCache.get(senderId)}@c.us`;
-        }
-        
-        const senderNumber = senderId.split('@')[0];
-
-        let botIsAdmin = false;
-        let isSenderAdmin = false;
-        try {
-            let botNumber = client.info && client.info.wid ? client.info.wid.user : "";
-            botIsAdmin = chat.participants.some(p => p.id.user === botNumber && (p.isAdmin || p.isSuperAdmin));
-            isSenderAdmin = chat.participants.some(p => p.id.user === senderNumber && (p.isAdmin || p.isSuperAdmin));
-        } catch(e) {}
-
-        const isBotOwner = MY_ADMIN_NUMBERS.includes(senderNumber);
-        if (msg.fromMe || isSenderAdmin || isBotOwner) return;
-
-        let shouldStrikeSwear = (settings.swear === 'all' || ((settings.swear === 'members' || settings.swear === true) && !isSenderAdmin));
-        let shouldStrikeLinks = (settings.links === 'all' || ((settings.links === 'members' || settings.links === true) && !isSenderAdmin));
-
-        if (shouldStrikeSwear && containsBadWordSmart(newBody)) {
-            if (botIsAdmin) { try { await msg.delete(true); } catch(e){} }
-            await chat.sendMessage(`${botPrefix}⚠️ التعديل للشتيمة لن يفيدك يا (@${senderNumber})!\nقال رسول الله ﷺ: «لَيْسَ المُؤْمِنُ بِالطَّعَّانِ...»`, { mentions:[senderId] });
-            return;
-        }
-
-        if (shouldStrikeLinks && GLOBAL_LINK_REGEX.test(newBody)) {
-            if (botIsAdmin) { try { await msg.delete(true); } catch(e){} }
-            await chat.sendMessage(`${botPrefix}⚠️ محاولة التعديل لوضع رابط مكشوفة يا (@${senderNumber})!`, { mentions:[senderId] });
-            return;
-        }
-    } catch (err) {}
-});
-
-client.initialize();
-process.on('SIGINT', async () => { try { await client.destroy(); process.exit(0); } catch (err) { process.exit(1); } });
+// تشغيل البوت
+startBot();
