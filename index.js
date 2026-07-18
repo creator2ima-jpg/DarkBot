@@ -14,12 +14,16 @@ if (!fs.existsSync(dataPath)) {
 }
 
 // --- 1. الإعدادات الأساسية ---
-const ADMIN_NUMBERS = ['201091885491@s.whatsapp.net']; 
-const BOT_PHONE_NUMBER = '201092996413'; // رقم البوت بدون +
+const ADMIN_NUMBERS = ['201092996413@s.whatsapp.net']; 
+// ⚠️ تأكد من وضع رقم البوت الجديد هنا (بدون علامة +)
+const BOT_PHONE_NUMBER = '201091885491'; 
 const PROFANITY_LIST = ['عرص', 'خول', 'معرص', 'متناك', 'شرموط', 'منيوك', 'خولات', 'معرصين', 'طيزك'];
 
 let groupSettings = {}; 
 let pendingMerchants = {}; 
+
+// 🔒 قفل الأمان لمنع طلب الكود أكثر من مرة (الحل الجذري للوب)
+let isCodeRequested = false; 
 
 function saveSettings() {
     fs.writeFileSync(path.join(dataPath, 'settings.json'), JSON.stringify(groupSettings, null, 2));
@@ -43,14 +47,17 @@ async function startBot() {
 
     const sock = makeWASocket({
         auth: state,
-        logger: pino({ level: 'silent' }),
+        logger: pino({ level: 'silent' }), // كتم رسائل النظام المزعجة
         printQRInTerminal: false, 
         browser: ['Ubuntu', 'Chrome', '20.0.04'], 
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    if (!sock.authState.creds.registered) {
+    // نظام طلب الكود المحمي بالقفل
+    if (!sock.authState.creds.registered && !isCodeRequested) {
+        isCodeRequested = true; // إغلاق القفل فوراً لمنع التكرار
+        
         setTimeout(async () => {
             try {
                 const code = await sock.requestPairingCode(BOT_PHONE_NUMBER);
@@ -59,13 +66,13 @@ async function startBot() {
                 console.log(`📱 افتح الواتساب > الأجهزة المرتبطة > ربط باستخدام رقم الهاتف`);
                 console.log(`========================================\n`);
             } catch (err) {
-                console.log('❌ حدث خطأ أثناء طلب الكود. واتساب يرفض الطلب حالياً.');
-                console.log('يرجى إيقاف البوت والانتظار بضع ساعات قبل المحاولة مجدداً لتجنب الحظر.');
+                console.log('⏳ جاري تهيئة الاتصال... سيتم المحاولة لاحقاً.');
+                isCodeRequested = false; // فتح القفل فقط إذا فشل في جلب الكود من الأساس
             }
-        }, 4000); 
+        }, 3000); 
     }
 
-    // --- 3. مراقبة حالة الاتصال (الطريقة الصحيحة لـ Railway) ---
+    // --- 3. مراقبة حالة الاتصال ---
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
 
@@ -73,19 +80,22 @@ async function startBot() {
             const statusCode = lastDisconnect.error?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             
-            console.log('⚠️ انقطع الاتصال...');
-            
             if (shouldReconnect) {
-                console.log('🔄 جاري إعادة تشغيل السيرفر بالكامل لضمان استقرار الاتصال...');
-                // إنهاء العملية بالكامل، وسيقوم Railway بإعادة تشغيلها بشكل "نظيف" بعد ثوانٍ قليلة
-                process.exit(1); 
+                // إعادة اتصال داخلية هادئة بعد 8 ثواني بدون إطفاء السيرفر وبدون طلب كود جديد
+                setTimeout(() => {
+                    startBot();
+                }, 8000); 
             } else {
-                console.log('❌ تم تسجيل الخروج! سيتم حذف الجلسة القديمة لتبدأ من جديد.');
+                console.log('❌ تم تسجيل الخروج! سيتم حذف الجلسة للبدء من جديد.');
                 fs.rmSync(path.join(dataPath, 'session_new'), { recursive: true, force: true });
-                process.exit(1);
+                isCodeRequested = false; // تصفير القفل لأننا سنبدأ من الصفر
+                setTimeout(() => {
+                    startBot();
+                }, 3000);
             }
         } else if (connection === 'open') {
             console.log('✅ البوت متصل الآن بنجاح ويعمل بكفاءة!');
+            isCodeRequested = false; // تصفير القفل ليعمل بشكل طبيعي في المرات القادمة
         }
     });
 
@@ -197,4 +207,7 @@ async function startBot() {
 // --- 6. الخادم ---
 const app = express();
 app.get('/', (req, res) => res.send('🚀 الخادم يعمل بنجاح!'));
-app.listen(process.env.PORT || 3000, '0.0.0.0', () => startBot());
+app.listen(process.env.PORT || 3000, '0.0.0.0', () => {
+    console.log(`🌐 خادم الويب يعمل بنجاح`);
+    startBot();
+});
