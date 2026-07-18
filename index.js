@@ -43,7 +43,7 @@ loadSettings();
 
 // --- 2. دالة التشغيل ---
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState(path.join(dataPath, 'session_new'));
+    const { state, saveCreds } = await useMultiFileAuthState(path.join(dataPath, 'session_v3'));
 
     const sock = makeWASocket({
         auth: state,
@@ -60,7 +60,7 @@ async function startBot() {
         
         setTimeout(async () => {
             try {
-                const code = await sock.requestPairingCode(BOT_PHONE_NUMBER);
+                const code = await sock.requestPairingCode(BOT_PHONE_NUMBER.replace(/[^0-9]/g, ''));
                 console.log(`\n========================================`);
                 console.log(`🔑 كود الربط الخاص بك هو: ${code}`);
                 console.log(`📱 افتح الواتساب > الأجهزة المرتبطة > ربط باستخدام رقم الهاتف`);
@@ -87,7 +87,7 @@ async function startBot() {
                 }, 8000); 
             } else {
                 console.log('❌ تم تسجيل الخروج! سيتم حذف الجلسة للبدء من جديد.');
-                fs.rmSync(path.join(dataPath, 'session_new'), { recursive: true, force: true });
+                fs.rmSync(path.join(dataPath, 'session_v3'), { recursive: true, force: true });
                 isCodeRequested = false; // تصفير القفل لأننا سنبدأ من الصفر
                 setTimeout(() => {
                     startBot();
