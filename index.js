@@ -2,6 +2,13 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = requi
 const pino = require('pino');
 const fs = require('fs');
 const express = require('express');
+const path = require('path');
+
+// --- إنشاء مجلد data إذا لم يكن موجوداً لحفظ الملفات على Railway ---
+const dataPath = path.join(__dirname, 'data');
+if (!fs.existsSync(dataPath)) {
+    fs.mkdirSync(dataPath, { recursive: true });
+}
 
 // --- 1. الإعدادات الأساسية ---
 const ADMIN_NUMBERS = ['201092996413@s.whatsapp.net']; 
@@ -10,21 +17,29 @@ const PROFANITY_LIST = ['عرص', 'خول', 'معرص', 'متناك', 'شرمو�
 
 let groupSettings = {}; 
 let pendingMerchants = {}; 
-let isRequestingCode = false; // متغير جديد لمنع تكرار طلب الكود بسرعة
+let isRequestingCode = false; 
 
 function saveSettings() {
-    fs.writeFileSync('./settings.json', JSON.stringify(groupSettings));
+    fs.writeFileSync(path.join(dataPath, 'settings.json'), JSON.stringify(groupSettings, null, 2));
 }
+
 function loadSettings() {
-    if (fs.existsSync('./settings.json')) {
-        groupSettings = JSON.parse(fs.readFileSync('./settings.json'));
+    const settingsFile = path.join(dataPath, 'settings.json');
+    if (fs.existsSync(settingsFile)) {
+        try {
+            groupSettings = JSON.parse(fs.readFileSync(settingsFile));
+        } catch (error) {
+            console.error('خطأ في قراءة ملف الإعدادات:', error);
+            groupSettings = {};
+        }
     }
 }
 loadSettings();
 
 // --- 2. دالة تشغيل البوت الأساسية ---
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
+    // تحديد مسار حفظ جلسة الواتساب داخل مجلد data
+    const { state, saveCreds } = await useMultiFileAuthState(path.join(dataPath, 'auth_info_baileys'));
 
     const sock = makeWASocket({
         auth: state,
@@ -35,7 +50,6 @@ async function startBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // تعديل نظام طلب الكود لتجنب الحظر
     if (!sock.authState.creds.registered && !isRequestingCode) {
         isRequestingCode = true; 
         setTimeout(async () => {
@@ -47,12 +61,12 @@ async function startBot() {
                 console.log(`========================================\n`);
             } catch (err) {
                 console.log('حدث خطأ أثناء طلب كود الربط:', err.message);
-                isRequestingCode = false; // السماح بالمحاولة مجدداً إذا فشل
+                isRequestingCode = false; 
             }
-        }, 5000); // تأخير 5 ثوانٍ لضمان استقرار الاتصال قبل الطلب
+        }, 5000); 
     }
 
-    // --- 3. مراقبة حالة الاتصال (تم التعديل لمنع اللوب) ---
+    // --- 3. مراقبة حالة الاتصال ---
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
 
@@ -62,10 +76,11 @@ async function startBot() {
             isRequestingCode = false; 
             
             if (shouldReconnect) {
-                // إضافة تأخير قبل إعادة الاتصال لمنع الانهيار
                 setTimeout(() => {
                     startBot();
                 }, 5000); 
+            } else {
+                console.log('❌ تم تسجيل الخروج من الجهاز، يرجى حذف مجلد auth_info_baileys وإعادة الربط.');
             }
         } else if (connection === 'open') {
             console.log('✅ البوت متصل الآن بنجاح ويعمل بكفاءة!');
@@ -222,7 +237,7 @@ app.get('/', (req, res) => {
     res.send('🚀 الخادم يعمل بنجاح! البوت متصل الآن.');
 });
 
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
     console.log(`🌐 خادم الويب يعمل على المنفذ: ${port}`);
     startBot(); 
 });
