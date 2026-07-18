@@ -1,16 +1,16 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const fs = require('fs');
-const express = require('express'); // مكتبة خادم الويب الضرورية للاستضافة
+const express = require('express');
 
 // --- 1. الإعدادات الأساسية ---
-const ADMIN_NUMBERS = ['201092996413@s.whatsapp.net']; // رقم الإدارة
-const BOT_PHONE_NUMBER = '201091885491'; // رقم البوت
+const ADMIN_NUMBERS = ['201092996413@s.whatsapp.net']; 
+const BOT_PHONE_NUMBER = '201091885491'; 
 const PROFANITY_LIST = ['عرص', 'خول', 'معرص', 'متناك', 'شرموط', 'منيوك', 'خولات', 'معرصين', 'طيزك'];
 
-// قاعدة بيانات بسيطة
 let groupSettings = {}; 
 let pendingMerchants = {}; 
+let isRequestingCode = false; // متغير جديد لمنع تكرار طلب الكود بسرعة
 
 function saveSettings() {
     fs.writeFileSync('./settings.json', JSON.stringify(groupSettings));
@@ -35,7 +35,9 @@ async function startBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    if (!sock.authState.creds.registered) {
+    // تعديل نظام طلب الكود لتجنب الحظر
+    if (!sock.authState.creds.registered && !isRequestingCode) {
+        isRequestingCode = true; 
         setTimeout(async () => {
             try {
                 const code = await sock.requestPairingCode(BOT_PHONE_NUMBER);
@@ -45,20 +47,29 @@ async function startBot() {
                 console.log(`========================================\n`);
             } catch (err) {
                 console.log('حدث خطأ أثناء طلب كود الربط:', err.message);
+                isRequestingCode = false; // السماح بالمحاولة مجدداً إذا فشل
             }
-        }, 3000); 
+        }, 5000); // تأخير 5 ثوانٍ لضمان استقرار الاتصال قبل الطلب
     }
 
-    // --- 3. مراقبة حالة الاتصال ---
+    // --- 3. مراقبة حالة الاتصال (تم التعديل لمنع اللوب) ---
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
 
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('انقطع الاتصال، جاري إعادة المحاولة...');
-            if (shouldReconnect) startBot();
+            console.log('⚠️ انقطع الاتصال، جاري إعادة المحاولة بعد 5 ثواني...');
+            isRequestingCode = false; 
+            
+            if (shouldReconnect) {
+                // إضافة تأخير قبل إعادة الاتصال لمنع الانهيار
+                setTimeout(() => {
+                    startBot();
+                }, 5000); 
+            }
         } else if (connection === 'open') {
             console.log('✅ البوت متصل الآن بنجاح ويعمل بكفاءة!');
+            isRequestingCode = false;
         }
     });
 
@@ -203,7 +214,7 @@ async function startBot() {
     });
 }
 
-// --- 6. تشغيل خادم الويب السحابي (هذا الجزء الأهم للاستضافة) ---
+// --- 6. تشغيل خادم الويب السحابي ---
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -213,5 +224,5 @@ app.get('/', (req, res) => {
 
 app.listen(port, () => {
     console.log(`🌐 خادم الويب يعمل على المنفذ: ${port}`);
-    startBot(); // بدء البوت بعد تشغيل الخادم
+    startBot(); 
 });
