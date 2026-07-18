@@ -2,12 +2,11 @@
   "name": "dark-fire-bot",
   "version": "1.0.0",
   "scripts": {
-    "start": "node --expose-gc --max-old-space-size=400 index.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.0",
     "express": "^4.21.1",
     "pino": "^9.0.0"
-}
   }
 }
