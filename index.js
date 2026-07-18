@@ -16,7 +16,7 @@ if (!fs.existsSync(dataPath)) {
 // --- 1. الإعدادات الأساسية ---
 const ADMIN_NUMBERS = ['201092996413@s.whatsapp.net']; 
 // ⚠️ تأكد من وضع رقم البوت الجديد هنا (بدون علامة +)
-const BOT_PHONE_NUMBER = '201091885491'; 
+const BOT_PHONE_NUMBER = '201092996413'; 
 const PROFANITY_LIST = ['عرص', 'خول', 'معرص', 'متناك', 'شرموط', 'منيوك', 'خولات', 'معرصين', 'طيزك'];
 
 let groupSettings = {}; 
