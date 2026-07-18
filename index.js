@@ -20,7 +20,9 @@ const PROFANITY_LIST = ['عرص', 'خول', 'معرص', 'متناك', 'شرمو�
 
 let groupSettings = {}; 
 let pendingMerchants = {}; 
-let isRequestingCode = false; 
+
+// متغير جديد لحماية الرقم من الحظر (يمنع طلب الكود بشكل متكرر وسريع)
+let lastCodeRequestTime = 0; 
 
 function saveSettings() {
     fs.writeFileSync(path.join(dataPath, 'settings.json'), JSON.stringify(groupSettings, null, 2));
@@ -41,8 +43,8 @@ loadSettings();
 
 // --- 2. دالة تشغيل البوت الأساسية ---
 async function startBot() {
-    // تحديد مسار حفظ جلسة الواتساب داخل مجلد data
-    const { state, saveCreds } = await useMultiFileAuthState(path.join(dataPath, 'auth_info_baileys'));
+    // تم تغيير اسم مجلد الجلسة إلى session_new لضمان جلسة نظيفة 100%
+    const { state, saveCreds } = await useMultiFileAuthState(path.join(dataPath, 'session_new'));
 
     const sock = makeWASocket({
         auth: state,
@@ -53,20 +55,27 @@ async function startBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    if (!sock.authState.creds.registered && !isRequestingCode) {
-        isRequestingCode = true; 
-        setTimeout(async () => {
-            try {
-                const code = await sock.requestPairingCode(BOT_PHONE_NUMBER);
-                console.log(`\n========================================`);
-                console.log(`🔑 كود الربط الخاص بك هو: ${code}`);
-                console.log(`📱 افتح الواتساب > الأجهزة المرتبطة > ربط باستخدام رقم الهاتف`);
-                console.log(`========================================\n`);
-            } catch (err) {
-                console.log('حدث خطأ أثناء طلب كود الربط:', err.message);
-                isRequestingCode = false; 
-            }
-        }, 5000); 
+    // نظام طلب الكود مع الحماية من السبام
+    if (!sock.authState.creds.registered) {
+        const now = Date.now();
+        // لن يطلب كوداً جديداً إلا إذا مرت 60 ثانية على الأقل منذ آخر طلب
+        if (now - lastCodeRequestTime > 60000) { 
+            lastCodeRequestTime = now;
+            setTimeout(async () => {
+                try {
+                    const code = await sock.requestPairingCode(BOT_PHONE_NUMBER);
+                    console.log(`\n========================================`);
+                    console.log(`🔑 كود الربط الخاص بك هو: ${code}`);
+                    console.log(`📱 افتح الواتساب > الأجهزة المرتبطة > ربط باستخدام رقم الهاتف`);
+                    console.log(`========================================\n`);
+                } catch (err) {
+                    console.log('حدث خطأ أثناء طلب كود الربط:', err.message);
+                    lastCodeRequestTime = 0; // تصفير العداد ليتيح المحاولة فوراً في حال الفشل
+                }
+            }, 3000); 
+        } else {
+            console.log('⏳ الاتصال غير مستقر، يرجى الانتظار... (البوت يحمي رقمك من الحظر ولن يطلب كوداً جديداً الآن)');
+        }
     }
 
     // --- 3. مراقبة حالة الاتصال ---
@@ -75,19 +84,18 @@ async function startBot() {
 
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('⚠️ انقطع الاتصال، جاري إعادة المحاولة بعد 5 ثواني...');
-            isRequestingCode = false; 
+            console.log('⚠️ انقطع الاتصال، جاري إعادة المحاولة بعد 10 ثواني...');
             
             if (shouldReconnect) {
+                // تم زيادة وقت الانتظار قبل إعادة الاتصال إلى 10 ثواني لتقليل الضغط على سيرفر واتساب
                 setTimeout(() => {
                     startBot();
-                }, 5000); 
+                }, 10000); 
             } else {
-                console.log('❌ تم تسجيل الخروج من الجهاز، يرجى حذف مجلد auth_info_baileys وإعادة الربط.');
+                console.log('❌ تم تسجيل الخروج من الجهاز، يرجى حذف مجلد session_new وإعادة الربط.');
             }
         } else if (connection === 'open') {
             console.log('✅ البوت متصل الآن بنجاح ويعمل بكفاءة!');
-            isRequestingCode = false;
         }
     });
 
