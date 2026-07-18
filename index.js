@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 global.crypto = crypto;
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const fs = require('fs');
 const express = require('express');
@@ -22,7 +22,7 @@ const PROFANITY_LIST = ['عرص', 'خول', 'معرص', 'متناك', 'شرمو�
 let groupSettings = {}; 
 let pendingMerchants = {}; 
 
-// 🔒 قفل الأمان لمنع طلب الكود أكثر من مرة (الحل الجذري للوب)
+// 🔒 قفل الأمان لمنع طلب الكود أكثر من مرة
 let isCodeRequested = false; 
 
 function saveSettings() {
@@ -49,15 +49,17 @@ async function startBot() {
         auth: state,
         logger: pino({ level: 'silent' }), // كتم رسائل النظام المزعجة
         printQRInTerminal: false, 
-        browser: ['Ubuntu', 'Chrome', '20.0.04'], 
+        // التعديل الأول: استخدام البصمة الرسمية للمتصفح لحل مشكلة "تعذر"
+        browser: Browsers.ubuntu('Chrome'), 
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    // نظام طلب الكود المحمي بالقفل
+    // نظام طلب الكود
     if (!sock.authState.creds.registered && !isCodeRequested) {
-        isCodeRequested = true; // إغلاق القفل فوراً لمنع التكرار
+        isCodeRequested = true; 
         
+        // التعديل الثاني: زيادة المهلة قليلاً لضمان استقرار الاتصال قبل طلب الكود
         setTimeout(async () => {
             try {
                 const code = await sock.requestPairingCode(BOT_PHONE_NUMBER.replace(/[^0-9]/g, ''));
@@ -67,9 +69,9 @@ async function startBot() {
                 console.log(`========================================\n`);
             } catch (err) {
                 console.log('⏳ جاري تهيئة الاتصال... سيتم المحاولة لاحقاً.');
-                isCodeRequested = false; // فتح القفل فقط إذا فشل في جلب الكود من الأساس
+                isCodeRequested = false; 
             }
-        }, 3000); 
+        }, 4000); 
     }
 
     // --- 3. مراقبة حالة الاتصال ---
@@ -81,21 +83,26 @@ async function startBot() {
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             
             if (shouldReconnect) {
-                // إعادة اتصال داخلية هادئة بعد 8 ثواني بدون إطفاء السيرفر وبدون طلب كود جديد
+                // التعديل الثالث: إذا فصل قبل اكتمال الربط، يتم حذف الجلسة لتوليد كود صالح
+                if (!sock.authState.creds.registered) {
+                    console.log('🔄 جاري تنظيف الجلسة المعلقة لتوليد كود جديد وصالح...');
+                    fs.rmSync(path.join(dataPath, 'session_v3'), { recursive: true, force: true });
+                }
+                isCodeRequested = false; 
                 setTimeout(() => {
                     startBot();
                 }, 8000); 
             } else {
                 console.log('❌ تم تسجيل الخروج! سيتم حذف الجلسة للبدء من جديد.');
                 fs.rmSync(path.join(dataPath, 'session_v3'), { recursive: true, force: true });
-                isCodeRequested = false; // تصفير القفل لأننا سنبدأ من الصفر
+                isCodeRequested = false; 
                 setTimeout(() => {
                     startBot();
                 }, 3000);
             }
         } else if (connection === 'open') {
             console.log('✅ البوت متصل الآن بنجاح ويعمل بكفاءة!');
-            isCodeRequested = false; // تصفير القفل ليعمل بشكل طبيعي في المرات القادمة
+            isCodeRequested = false; 
         }
     });
 
