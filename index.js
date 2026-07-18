@@ -1,11 +1,12 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const fs = require('fs');
+const express = require('express'); // مكتبة خادم الويب الضرورية للاستضافة
 
 // --- 1. الإعدادات الأساسية ---
-const ADMIN_NUMBERS = ['201092996413@s.whatsapp.net']; // رقم الإدارة الخاص بك (ضع رقمك هنا)
-const BOT_PHONE_NUMBER = '201091885491'; // رقم البوت الذي سيعمل عليه الكود (لإرسال كود الربط)
-const PROFANITY_LIST = ['عرص', 'خول', 'معرص', 'متناك', 'شرموط', 'منيوك', 'خولات', 'معرصين', 'طيزك']; // ضع الكلمات الممنوعة هنا
+const ADMIN_NUMBERS = ['201092996413@s.whatsapp.net']; // رقم الإدارة
+const BOT_PHONE_NUMBER = '201091885491'; // رقم البوت
+const PROFANITY_LIST = ['عرص', 'خول', 'معرص', 'متناك', 'شرموط', 'منيوك', 'خولات', 'معرصين', 'طيزك'];
 
 // قاعدة بيانات بسيطة
 let groupSettings = {}; 
@@ -27,14 +28,13 @@ async function startBot() {
 
     const sock = makeWASocket({
         auth: state,
-        logger: pino({ level: 'silent' }), // إخفاء السجلات المزعجة
-        printQRInTerminal: false, // إيقاف الباركود واستخدام كود الربط
-        browser: ['Ubuntu', 'Chrome', '20.0.04'], // ضروري لعمل كود الربط
+        logger: pino({ level: 'silent' }),
+        printQRInTerminal: false, 
+        browser: ['Ubuntu', 'Chrome', '20.0.04'], 
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    // طلب كود الربط إذا لم يكن البوت مسجلاً الدخول مسبقاً
     if (!sock.authState.creds.registered) {
         setTimeout(async () => {
             try {
@@ -56,13 +56,13 @@ async function startBot() {
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log('انقطع الاتصال، جاري إعادة المحاولة...');
-            if (shouldReconnect) startBot(); // إعادة الاتصال تلقائياً
+            if (shouldReconnect) startBot();
         } else if (connection === 'open') {
             console.log('✅ البوت متصل الآن بنجاح ويعمل بكفاءة!');
         }
     });
 
-    // --- 4. نظام توثيق التجار (مراقبة دخول الأعضاء) ---
+    // --- 4. نظام توثيق التجار ---
     sock.ev.on('group-participants.update', async (update) => {
         const { id: groupId, participants, action } = update;
 
@@ -95,7 +95,7 @@ async function startBot() {
         }
     });
 
-    // --- 5. استقبال الرسائل (الأوامر، الحماية، فحص المنشن) ---
+    // --- 5. استقبال الرسائل ---
     sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
@@ -114,7 +114,6 @@ async function startBot() {
             saveSettings();
         }
 
-        // --- أ. التحقق من توثيق التاجر الجديد ---
         if (pendingMerchants[sender] && pendingMerchants[sender].groupId === groupId) {
             const mentionedJids = msg.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
             if (mentionedJids.length >= 5) {
@@ -125,7 +124,6 @@ async function startBot() {
             }
         }
 
-        // --- ب. نظام الحماية الذاتية (روابط وشتائم) ---
         const isUrl = text.match(/https?:\/\/[^\s]+/gi);
         const hasProfanity = PROFANITY_LIST.some(word => text.includes(word));
 
@@ -145,7 +143,6 @@ async function startBot() {
             return;
         }
 
-        // --- ج. لوحة تحكم الإدارة ---
         if (isAdmin && text.startsWith('!')) {
             const command = text.split(' ')[0];
             const args = text.replace(command, '').trim();
@@ -206,5 +203,15 @@ async function startBot() {
     });
 }
 
-// تشغيل البوت
-startBot();
+// --- 6. تشغيل خادم الويب السحابي (هذا الجزء الأهم للاستضافة) ---
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+    res.send('🚀 الخادم يعمل بنجاح! البوت متصل الآن.');
+});
+
+app.listen(port, () => {
+    console.log(`🌐 خادم الويب يعمل على المنفذ: ${port}`);
+    startBot(); // بدء البوت بعد تشغيل الخادم
+});
