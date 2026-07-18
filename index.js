@@ -7,22 +7,19 @@ const fs = require('fs');
 const express = require('express');
 const path = require('path');
 
-// --- إنشاء مجلد data إذا لم يكن موجوداً لحفظ الملفات على Railway ---
+// --- إنشاء مجلد data ---
 const dataPath = path.join(__dirname, 'data');
 if (!fs.existsSync(dataPath)) {
     fs.mkdirSync(dataPath, { recursive: true });
 }
 
 // --- 1. الإعدادات الأساسية ---
-const ADMIN_NUMBERS = ['201092996413@s.whatsapp.net']; 
-const BOT_PHONE_NUMBER = '201091885491'; 
+const ADMIN_NUMBERS = ['201091885491@s.whatsapp.net']; 
+const BOT_PHONE_NUMBER = '201092996413'; // رقم البوت بدون +
 const PROFANITY_LIST = ['عرص', 'خول', 'معرص', 'متناك', 'شرموط', 'منيوك', 'خولات', 'معرصين', 'طيزك'];
 
 let groupSettings = {}; 
 let pendingMerchants = {}; 
-
-// متغير جديد لحماية الرقم من الحظر (يمنع طلب الكود بشكل متكرر وسريع)
-let lastCodeRequestTime = 0; 
 
 function saveSettings() {
     fs.writeFileSync(path.join(dataPath, 'settings.json'), JSON.stringify(groupSettings, null, 2));
@@ -34,16 +31,14 @@ function loadSettings() {
         try {
             groupSettings = JSON.parse(fs.readFileSync(settingsFile));
         } catch (error) {
-            console.error('خطأ في قراءة ملف الإعدادات:', error);
             groupSettings = {};
         }
     }
 }
 loadSettings();
 
-// --- 2. دالة تشغيل البوت الأساسية ---
+// --- 2. دالة التشغيل ---
 async function startBot() {
-    // تم تغيير اسم مجلد الجلسة إلى session_new لضمان جلسة نظيفة 100%
     const { state, saveCreds } = await useMultiFileAuthState(path.join(dataPath, 'session_new'));
 
     const sock = makeWASocket({
@@ -55,44 +50,39 @@ async function startBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // نظام طلب الكود مع الحماية من السبام
     if (!sock.authState.creds.registered) {
-        const now = Date.now();
-        // لن يطلب كوداً جديداً إلا إذا مرت 60 ثانية على الأقل منذ آخر طلب
-        if (now - lastCodeRequestTime > 60000) { 
-            lastCodeRequestTime = now;
-            setTimeout(async () => {
-                try {
-                    const code = await sock.requestPairingCode(BOT_PHONE_NUMBER);
-                    console.log(`\n========================================`);
-                    console.log(`🔑 كود الربط الخاص بك هو: ${code}`);
-                    console.log(`📱 افتح الواتساب > الأجهزة المرتبطة > ربط باستخدام رقم الهاتف`);
-                    console.log(`========================================\n`);
-                } catch (err) {
-                    console.log('حدث خطأ أثناء طلب كود الربط:', err.message);
-                    lastCodeRequestTime = 0; // تصفير العداد ليتيح المحاولة فوراً في حال الفشل
-                }
-            }, 3000); 
-        } else {
-            console.log('⏳ الاتصال غير مستقر، يرجى الانتظار... (البوت يحمي رقمك من الحظر ولن يطلب كوداً جديداً الآن)');
-        }
+        setTimeout(async () => {
+            try {
+                const code = await sock.requestPairingCode(BOT_PHONE_NUMBER);
+                console.log(`\n========================================`);
+                console.log(`🔑 كود الربط الخاص بك هو: ${code}`);
+                console.log(`📱 افتح الواتساب > الأجهزة المرتبطة > ربط باستخدام رقم الهاتف`);
+                console.log(`========================================\n`);
+            } catch (err) {
+                console.log('❌ حدث خطأ أثناء طلب الكود. واتساب يرفض الطلب حالياً.');
+                console.log('يرجى إيقاف البوت والانتظار بضع ساعات قبل المحاولة مجدداً لتجنب الحظر.');
+            }
+        }, 4000); 
     }
 
-    // --- 3. مراقبة حالة الاتصال ---
+    // --- 3. مراقبة حالة الاتصال (الطريقة الصحيحة لـ Railway) ---
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
 
         if (connection === 'close') {
-            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('⚠️ انقطع الاتصال، جاري إعادة المحاولة بعد 10 ثواني...');
+            const statusCode = lastDisconnect.error?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            
+            console.log('⚠️ انقطع الاتصال...');
             
             if (shouldReconnect) {
-                // تم زيادة وقت الانتظار قبل إعادة الاتصال إلى 10 ثواني لتقليل الضغط على سيرفر واتساب
-                setTimeout(() => {
-                    startBot();
-                }, 10000); 
+                console.log('🔄 جاري إعادة تشغيل السيرفر بالكامل لضمان استقرار الاتصال...');
+                // إنهاء العملية بالكامل، وسيقوم Railway بإعادة تشغيلها بشكل "نظيف" بعد ثوانٍ قليلة
+                process.exit(1); 
             } else {
-                console.log('❌ تم تسجيل الخروج من الجهاز، يرجى حذف مجلد session_new وإعادة الربط.');
+                console.log('❌ تم تسجيل الخروج! سيتم حذف الجلسة القديمة لتبدأ من جديد.');
+                fs.rmSync(path.join(dataPath, 'session_new'), { recursive: true, force: true });
+                process.exit(1);
             }
         } else if (connection === 'open') {
             console.log('✅ البوت متصل الآن بنجاح ويعمل بكفاءة!');
@@ -106,14 +96,14 @@ async function startBot() {
         if (action === 'add') {
             for (let user of participants) {
                 await sock.sendMessage(groupId, { 
-                    text: `أهلاً بك @${user.split('@')[0]}\nأمامك 30 دقيقة لإثبات هويتك كتاجر عبر عمل "منشن" لـ 5 تجار في رسالة واحدة، وإلا سيتم إخراجك تلقائياً للحفاظ على جودة المجموعة.`,
+                    text: `أهلاً بك @${user.split('@')[0]}\nأمامك 30 دقيقة لإثبات هويتك كتاجر عبر عمل "منشن" لـ 5 تجار في رسالة واحدة.`,
                     mentions: [user] 
                 });
 
                 const warningTimer = setTimeout(async () => {
                     if (pendingMerchants[user] && pendingMerchants[user].groupId === groupId) {
                         await sock.sendMessage(groupId, { 
-                            text: `⚠️ إنذار أخير @${user.split('@')[0]}! بقي 3 دقائق فقط لعمل منشن لـ 5 تجار.`,
+                            text: `⚠️ إنذار أخير @${user.split('@')[0]}! بقي 3 دقائق.`,
                             mentions: [user]
                         });
                     }
@@ -121,7 +111,6 @@ async function startBot() {
 
                 const kickTimer = setTimeout(async () => {
                     if (pendingMerchants[user] && pendingMerchants[user].groupId === groupId) {
-                        await sock.sendMessage(groupId, { text: `انتهى الوقت. سيتم إخراج الرقم لعدم التوثيق.` });
                         await sock.groupParticipantsUpdate(groupId, [user], 'remove');
                         delete pendingMerchants[user];
                     }
@@ -169,13 +158,6 @@ async function startBot() {
 
             if (isUrl && groupSettings[groupId].linkSystem === 'طرد') {
                 await sock.groupParticipantsUpdate(groupId, [sender], 'remove');
-                await sock.sendMessage(groupId, { text: `🚫 تم طرد العضو لإرساله روابط.` });
-            } else if (isUrl) {
-                await sock.sendMessage(groupId, { text: `🚫 يُمنع إرسال الروابط هنا!` });
-            }
-
-            if (hasProfanity) {
-                await sock.sendMessage(groupId, { text: `🚫 يرجى الالتزام بالآداب العامة!` });
             }
             return;
         }
@@ -188,67 +170,31 @@ async function startBot() {
                 case '!نظام':
                     if (args.includes('الروابط حذف')) {
                         groupSettings[groupId].linkSystem = 'حذف';
-                        await sock.sendMessage(groupId, { text: '✅ تم تفعيل نظام الروابط: (حذف فقط)' });
+                        await sock.sendMessage(groupId, { text: '✅ (حذف فقط)' });
                     } else if (args.includes('الروابط طرد')) {
                         groupSettings[groupId].linkSystem = 'طرد';
-                        await sock.sendMessage(groupId, { text: '🚨 تم تفعيل نظام الروابط: (طرد مباشر)' });
+                        await sock.sendMessage(groupId, { text: '🚨 (طرد مباشر)' });
                     }
                     saveSettings();
                     break;
 
                 case '!تفعيل':
-                    let days = 0;
-                    if (args === '1') days = 5;
-                    else if (args === '2') days = 7;
-                    else if (args === 'الكل') days = 30; 
-
+                    let days = args === '1' ? 5 : args === '2' ? 7 : args === 'الكل' ? 30 : 0; 
                     if (days > 0) {
                         const expire = new Date();
                         expire.setDate(expire.getDate() + days);
                         groupSettings[groupId].isActive = true;
                         groupSettings[groupId].expireDate = expire;
                         saveSettings();
-                        await sock.sendMessage(groupId, { text: `✅ تم تفعيل البوت في هذه المجموعة لمدة ${days} أيام.` });
+                        await sock.sendMessage(groupId, { text: `✅ تم تفعيل البوت ${days} أيام.` });
                     }
-                    break;
-
-                case '!اذاعة':
-                    if (!args) {
-                        await sock.sendMessage(groupId, { text: '❌ يرجى كتابة الرسالة بعد الأمر. مثال: !اذاعة عرض خاص' });
-                        return;
-                    }
-                    await sock.sendMessage(groupId, { text: 'جاري الإرسال لكل المجموعات المفعلة...' });
-                    
-                    let delay = 1000;
-                    for (const gid in groupSettings) {
-                        if (groupSettings[gid].isActive) {
-                            setTimeout(async () => {
-                                await sock.sendMessage(gid, { text: `📢 إعلان إداري:\n\n${args}` });
-                            }, delay);
-                            delay += 3000; 
-                        }
-                    }
-                    break;
-
-                case '!فحص':
-                    const status = groupSettings[groupId].isActive ? 'مفعل ✅' : 'منتهي ❌';
-                    const linkSys = groupSettings[groupId].linkSystem;
-                    await sock.sendMessage(groupId, { text: `📊 حالة الجروب:\nالاشتراك: ${status}\nنظام الروابط: ${linkSys}` });
                     break;
             }
         }
     });
 }
 
-// --- 6. تشغيل خادم الويب السحابي ---
+// --- 6. الخادم ---
 const app = express();
-const port = process.env.PORT || 3000;
-
-app.get('/', (req, res) => {
-    res.send('🚀 الخادم يعمل بنجاح! البوت متصل الآن.');
-});
-
-app.listen(port, '0.0.0.0', () => {
-    console.log(`🌐 خادم الويب يعمل على المنفذ: ${port}`);
-    startBot(); 
-});
+app.get('/', (req, res) => res.send('🚀 الخادم يعمل بنجاح!'));
+app.listen(process.env.PORT || 3000, '0.0.0.0', () => startBot());
