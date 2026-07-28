@@ -9,8 +9,9 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.0",
+    "@whiskeysockets/baileys": "latest",
     "express": "^4.21.1",
     "pino": "^9.0.0"
+}
   }
 }
