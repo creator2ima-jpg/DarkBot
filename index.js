@@ -1,11 +1,15 @@
 const crypto = require('crypto');
 global.crypto = crypto;
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const fs = require('fs');
 const express = require('express');
 const path = require('path');
+
+// منع السيرفر من التوقف عند حدوث أخطاء داخلية في مكتبة الاتصال
+process.on('uncaughtException', console.error);
+process.on('unhandledRejection', console.error);
 
 // --- إنشاء مجلد data ---
 const dataPath = path.join(__dirname, 'data');
@@ -13,17 +17,21 @@ if (!fs.existsSync(dataPath)) {
     fs.mkdirSync(dataPath, { recursive: true });
 }
 
-// ⚠️ تغيير اسم الجلسة إلى v4 لضمان بداية نظيفة وتخطي أي ملفات تالفة سابقة
-const sessionPath = path.join(dataPath, 'session_v4');
+// ⚠️ تم التحديث إلى الجلسة الخامسة لتخطي اللوب والملفات المعطوبة نهائياً
+const sessionPath = path.join(dataPath, 'session_v5');
 
 // --- 1. الإعدادات الأساسية ---
+// تم إضافة أرقامك الجديدة بالصيغة الدولية (20 بدلاً من 0)
 const ADMIN_NUMBERS = ['201155554791@s.whatsapp.net']; 
 const BOT_PHONE_NUMBER = '201099906414'; 
 const PROFANITY_LIST = ['عرص', 'خول', 'معرص', 'متناك', 'شرموط', 'منيوك', 'خولات', 'معرصين', 'طيزك'];
 
 let groupSettings = {}; 
 let pendingMerchants = {}; 
-let isCodeRequested = false; 
+
+// متغيرات لمنع التداخل واللوب
+let isStarting = false;
+let isCodeRequested = false;
 
 function saveSettings() {
     fs.writeFileSync(path.join(dataPath, 'settings.json'), JSON.stringify(groupSettings, null, 2));
@@ -43,51 +51,56 @@ loadSettings();
 
 // --- 2. دالة التشغيل ---
 async function startBot() {
+    // منع استدعاء الدالة أكثر من مرة في نفس الوقت (حل مشكلة اللوب)
+    if (isStarting) return;
+    isStarting = true;
+
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }), 
         printQRInTerminal: false, 
-        // استخدام بصمة ماك الأقل عرضة لرسالة "تعذر"
-        browser: ['Mac OS', 'Chrome', '10.15.7'], 
+        browser: Browsers.macOS('Desktop'), 
+        syncFullHistory: false, // تسريع عملية الاتصال
     });
 
     sock.ev.on('creds.update', saveCreds);
 
+    // نظام طلب الكود المستقر
     if (!sock.authState.creds.registered && !isCodeRequested) {
         isCodeRequested = true; 
         
         setTimeout(async () => {
             try {
-                const code = await sock.requestPairingCode(BOT_PHONE_NUMBER.replace(/[^0-9]/g, ''));
+                const code = await sock.requestPairingCode(BOT_PHONE_NUMBER);
                 console.log(`\n========================================`);
                 console.log(`🔑 كود الربط الخاص بك هو: ${code}`);
                 console.log(`📱 افتح الواتساب > الأجهزة المرتبطة > ربط باستخدام رقم الهاتف`);
                 console.log(`========================================\n`);
             } catch (err) {
-                console.log('⏳ جاري تهيئة الاتصال لطلب الكود...');
+                console.log('⏳ جاري تهيئة الاتصال... يرجى الانتظار.');
                 isCodeRequested = false; 
             }
-        }, 3000); 
+        }, 5000); // انتظار 5 ثواني لضمان استقرار السوكيت قبل طلب الكود
     }
 
-    // --- 3. مراقبة حالة الاتصال ---
+    // --- 3. مراقبة حالة الاتصال (بدون لوب) ---
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
 
         if (connection === 'close') {
+            isStarting = false; // السماح بإعادة الاتصال بعد الإغلاق التام
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             
             if (shouldReconnect) {
-                console.log('🔄 انقطع الاتصال مؤقتاً، جاري إعادة المحاولة بهدوء...');
-                // تم إزالة الكود الذي كان يدمر الجلسة، الآن سيحافظ على الكود المعروض لك
+                console.log('🔄 انقطع الاتصال، جاري إعادة المحاولة بأمان...');
                 setTimeout(() => {
                     startBot();
-                }, 5000); 
+                }, 8000); // الانتظار 8 ثواني كاملة لمنع حظر الواتساب
             } else {
-                console.log('❌ تم تسجيل الخروج! سيتم حذف الجلسة للبدء من جديد.');
+                console.log('❌ تم تسجيل الخروج! سيتم حذف الجلسة.');
                 fs.rmSync(sessionPath, { recursive: true, force: true });
                 isCodeRequested = false; 
                 setTimeout(() => {
@@ -96,6 +109,7 @@ async function startBot() {
             }
         } else if (connection === 'open') {
             console.log('✅ البوت متصل الآن بنجاح ويعمل بكفاءة!');
+            isStarting = false;
             isCodeRequested = false; 
         }
     });
