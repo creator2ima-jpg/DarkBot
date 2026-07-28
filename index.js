@@ -1,13 +1,12 @@
 const crypto = require('crypto');
 global.crypto = crypto;
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const fs = require('fs');
 const express = require('express');
 const path = require('path');
 
-// --- 🕵️ نظام صيد الأخطاء المخفية (Crash Catcher) ---
 process.on('uncaughtException', (err) => {
     console.error('\n🚨 [عطل برمجي مفاجئ - Uncaught Exception]:', err.message);
 });
@@ -20,8 +19,8 @@ if (!fs.existsSync(dataPath)) {
     fs.mkdirSync(dataPath, { recursive: true });
 }
 
-// استخدام جلسة 8 لضمان بيئة نظيفة للتشخيص
-const sessionPath = path.join(dataPath, 'session_v8');
+// 🛑 جلسة رقم 10 لمسح آثار الخطأ 401 تماماً
+const sessionPath = path.join(dataPath, 'session_v10');
 
 const ADMIN_NUMBERS = ['201155554791@s.whatsapp.net']; 
 const BOT_PHONE_NUMBER = '201099906414'; 
@@ -49,7 +48,7 @@ async function startBot() {
         auth: state,
         logger: pino({ level: 'silent' }), 
         printQRInTerminal: false, 
-        browser: ['Chrome (Linux)', '', ''], 
+        browser: Browsers.ubuntu('Chrome'), 
         syncFullHistory: false,
     });
 
@@ -59,10 +58,14 @@ async function startBot() {
         console.log('⚙️ [نظام التشخيص]: لا يوجد ربط مسبق، جاري طلب كود بعد 3 ثواني...');
         setTimeout(async () => {
             try {
-                const code = await sock.requestPairingCode(BOT_PHONE_NUMBER.trim());
+                // تنظيف الرقم من أي مسافات أو رموز لضمان عدم حدوث خطأ
+                const cleanNumber = BOT_PHONE_NUMBER.replace(/[^0-9]/g, '');
+                
+                const code = await sock.requestPairingCode(cleanNumber);
                 console.log(`\n========================================`);
-                console.log(`🔑 كود الربط الخاص بك هو: ${code}`);
-                console.log(`📱 افتح الواتساب > الأجهزة المرتبطة > ربط باستخدام رقم الهاتف`);
+                console.log(`📞 الرقم المستهدف للربط هو : ${cleanNumber}`); // طلبك تم تنفيذه هنا
+                console.log(`🔑 كود الربط الخاص بك هو   : ${code}`);
+                console.log(`📱 افتح الواتساب بنفس الرقم > الأجهزة المرتبطة > ربط باستخدام رقم الهاتف`);
                 console.log(`========================================\n`);
             } catch (err) {
                 console.log('\n❌ [تشخيص الأعطال - فشل الكود]:');
@@ -72,7 +75,6 @@ async function startBot() {
         }, 3000); 
     }
 
-    // --- 🕵️ المترجم الذكي لأكواد واتساب ---
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
 
@@ -82,15 +84,14 @@ async function startBot() {
             
             console.log(`\n🔍 [تشخيص الأعطال - انقطاع الاتصال]: كود الخطأ (${statusCode})`);
             
-            // ترجمة الأخطاء الشائعة لتسهيل الفهم
             if (statusCode === 405) {
                 console.log('💡 السبب (405): واتساب وضع "حظر مؤقت" على رقمك بسبب كثرة محاولات طلب الكود.');
-                console.log('🛠️ الحل: يجب إيقاف البوت تماماً لمدة ساعة حتى يفك واتساب الحظر، وتأكد من تحديث المكتبة في package.json.');
+                console.log('🛠️ الحل: يجب إيقاف البوت تماماً لمدة ساعة حتى يفك واتساب الحظر.');
                 fs.rmSync(sessionPath, { recursive: true, force: true });
-                return; // إيقاف اللوب فوراً
+                return; 
             } 
             else if (statusCode === 401) {
-                console.log('💡 السبب (401): تم تسجيل خروج البوت من الهاتف، أو الجلسة تالفة.');
+                console.log('💡 السبب (401): تم رفض الكود! (الرقم غير متطابق، أو الكود منتهي الصلاحية، أو تم طرد البوت).');
                 console.log('🛠️ الحل: سيقوم الكود بمسح الجلسة القديمة وطلب كود جديد.');
                 fs.rmSync(sessionPath, { recursive: true, force: true });
             } 
@@ -104,7 +105,7 @@ async function startBot() {
                 console.log('💡 السبب (500): مشكلة داخلية في سيرفرات واتساب نفسها.');
             } 
             else if (statusCode === 515) {
-                console.log('💡 السبب (515): إجراء طبيعي من واتساب لإعادة تنشيط الاتصال (Restart Required).');
+                console.log('💡 السبب (515): إجراء طبيعي من واتساب لإعادة تنشيط الاتصال.');
             } 
             else {
                 console.log(`💡 السبب: غير معروف مسجل في المكتبة. الرسالة التقنية: ${errorMsg}`);
@@ -125,7 +126,6 @@ async function startBot() {
         }
     });
 
-    // --- أوامر البوت (نظام الروابط والتجار) ---
     sock.ev.on('group-participants.update', async (update) => {
         const { id: groupId, participants, action } = update;
         if (action === 'add') {
