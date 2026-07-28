@@ -17,8 +17,8 @@ if (!fs.existsSync(dataPath)) {
 const sessionPath = path.join(dataPath, 'session_v4');
 
 // --- 1. الإعدادات الأساسية ---
-const ADMIN_NUMBERS = ['201092996413@s.whatsapp.net']; 
-const BOT_PHONE_NUMBER = '201092996413'; 
+const ADMIN_NUMBERS = ['201155554791@s.whatsapp.net']; 
+const BOT_PHONE_NUMBER = '201099906414'; 
 const PROFANITY_LIST = ['عرص', 'خول', 'معرص', 'متناك', 'شرموط', 'منيوك', 'خولات', 'معرصين', 'طيزك'];
 
 let groupSettings = {}; 
