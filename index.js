@@ -8,10 +8,10 @@ const express = require('express');
 const path = require('path');
 
 process.on('uncaughtException', (err) => {
-    console.error('\n🚨 [عطل برمجي مفاجئ - Uncaught Exception]:', err.message);
+    console.error('\n🚨 [عطل برمجي مفاجئ]:', err.message);
 });
 process.on('unhandledRejection', (err) => {
-    console.error('\n🚨 [عطل في الاتصال - Unhandled Rejection]:', err.message);
+    console.error('\n🚨 [عطل في الاتصال]:', err.message);
 });
 
 const dataPath = path.join(__dirname, 'data');
@@ -19,8 +19,8 @@ if (!fs.existsSync(dataPath)) {
     fs.mkdirSync(dataPath, { recursive: true });
 }
 
-// 🛑 جلسة رقم 10 لمسح آثار الخطأ 401 تماماً
-const sessionPath = path.join(dataPath, 'session_v10');
+// 🛑 جلسة رقم 11 للبدء بدون أي مفاتيح تشفير معلقة
+const sessionPath = path.join(dataPath, 'session_v11');
 
 const ADMIN_NUMBERS = ['201155554791@s.whatsapp.net']; 
 const BOT_PHONE_NUMBER = '201099906414'; 
@@ -49,7 +49,14 @@ async function startBot() {
         logger: pino({ level: 'silent' }), 
         printQRInTerminal: false, 
         browser: Browsers.ubuntu('Chrome'), 
-        syncFullHistory: false,
+        
+        // 🛑 الحل الجذري لمشكلة 408 (تعذر بعد طول انتظار):
+        syncFullHistory: false, // منع تحميل الرسائل القديمة لتخفيف الضغط
+        connectTimeoutMs: 120000, // إعطاء السيرفر مهلة دقيقتين كاملتين للربط دون أن يفصل
+        defaultQueryTimeoutMs: 120000,
+        keepAliveIntervalMs: 10000, // إرسال نبضات كل 10 ثواني لضمان استقرار الاتصال
+        emitOwnEvents: true,
+        markOnlineOnConnect: true
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -58,19 +65,15 @@ async function startBot() {
         console.log('⚙️ [نظام التشخيص]: لا يوجد ربط مسبق، جاري طلب كود بعد 3 ثواني...');
         setTimeout(async () => {
             try {
-                // تنظيف الرقم من أي مسافات أو رموز لضمان عدم حدوث خطأ
                 const cleanNumber = BOT_PHONE_NUMBER.replace(/[^0-9]/g, '');
-                
                 const code = await sock.requestPairingCode(cleanNumber);
                 console.log(`\n========================================`);
-                console.log(`📞 الرقم المستهدف للربط هو : ${cleanNumber}`); // طلبك تم تنفيذه هنا
+                console.log(`📞 الرقم المستهدف للربط هو : ${cleanNumber}`);
                 console.log(`🔑 كود الربط الخاص بك هو   : ${code}`);
                 console.log(`📱 افتح الواتساب بنفس الرقم > الأجهزة المرتبطة > ربط باستخدام رقم الهاتف`);
                 console.log(`========================================\n`);
             } catch (err) {
-                console.log('\n❌ [تشخيص الأعطال - فشل الكود]:');
-                console.log('💡 السبب المحتمل: رقم الهاتف غير صحيح، أو السيرفر محظور من واتساب، أو المكتبة قديمة.');
-                console.log(`📜 رسالة الخطأ التقنية: ${err.message || err}\n`);
+                console.log('\n❌ [تشخيص الأعطال - فشل الكود]:', err.message || err);
             }
         }, 3000); 
     }
@@ -85,39 +88,29 @@ async function startBot() {
             console.log(`\n🔍 [تشخيص الأعطال - انقطاع الاتصال]: كود الخطأ (${statusCode})`);
             
             if (statusCode === 405) {
-                console.log('💡 السبب (405): واتساب وضع "حظر مؤقت" على رقمك بسبب كثرة محاولات طلب الكود.');
-                console.log('🛠️ الحل: يجب إيقاف البوت تماماً لمدة ساعة حتى يفك واتساب الحظر.');
+                console.log('💡 السبب (405): حظر مؤقت. أوقف البوت لمدة ساعة.');
                 fs.rmSync(sessionPath, { recursive: true, force: true });
                 return; 
             } 
             else if (statusCode === 401) {
-                console.log('💡 السبب (401): تم رفض الكود! (الرقم غير متطابق، أو الكود منتهي الصلاحية، أو تم طرد البوت).');
-                console.log('🛠️ الحل: سيقوم الكود بمسح الجلسة القديمة وطلب كود جديد.');
+                console.log('💡 السبب (401): الكود غير صحيح أو انتهت صلاحيته.');
                 fs.rmSync(sessionPath, { recursive: true, force: true });
             } 
             else if (statusCode === 408) {
-                console.log('💡 السبب (408): انتهى وقت الطلب (Timeout)، استجابة واتساب بطيئة أو هناك ضعف في انترنت السيرفر.');
-            } 
-            else if (statusCode === 440) {
-                console.log('💡 السبب (440): تعارض (Conflict)! البوت يعمل في سيرفرين أو نافذتين في نفس الوقت.');
-            } 
-            else if (statusCode === 500) {
-                console.log('💡 السبب (500): مشكلة داخلية في سيرفرات واتساب نفسها.');
+                console.log('💡 السبب (408): تأخر الهاتف في الرد (Timeout). السيرفر يحتاج إنترنت أسرع أو وقت أطول.');
+                // لن نمسح الجلسة هنا، بل سنجعله يحاول إكمال الربط
             } 
             else if (statusCode === 515) {
-                console.log('💡 السبب (515): إجراء طبيعي من واتساب لإعادة تنشيط الاتصال.');
+                console.log('💡 السبب (515): إعادة تنشيط طبيعية من واتساب.');
             } 
-            else {
-                console.log(`💡 السبب: غير معروف مسجل في المكتبة. الرسالة التقنية: ${errorMsg}`);
-            }
 
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut && statusCode !== 405;
 
             if (shouldReconnect) {
-                console.log('🔄 [نظام التشخيص]: سيتم إعادة المحاولة بعد 10 ثواني بهدوء...');
+                console.log('🔄 [نظام التشخيص]: سيتم إعادة المحاولة بعد 10 ثواني بهدوء لعل الربط يكتمل...');
                 setTimeout(() => { startBot(); }, 10000); 
             } else {
-                console.log('❌ [نظام التشخيص]: لن يتم إعادة الاتصال. تم مسح الجلسة للبدء من الصفر لاحقاً.');
+                console.log('❌ [نظام التشخيص]: تم تسجيل الخروج. تم مسح الجلسة للبدء من الصفر.');
                 setTimeout(() => { startBot(); }, 3000);
             }
 
